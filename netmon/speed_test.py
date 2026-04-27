@@ -15,7 +15,6 @@ import json
 import logging
 import subprocess
 import time
-from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import insert
@@ -24,14 +23,11 @@ from sqlalchemy.engine import Engine
 from netmon import config as cfg
 from netmon.bandwidth import sample as sample_bandwidth
 from netmon.db import speed_tests, test_events
+from netmon.utils import now
 
 log = logging.getLogger(__name__)
 
 _SPEEDTEST_ARGS = ["--accept-license", "--accept-gdpr", "-f", "json"]
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +37,7 @@ def _now() -> datetime:
 def _write_event(
     engine: Engine,
     status: str,
-    scheduled_for: Optional[datetime] = None,
+    scheduled_for=None,
     current_throughput_mbps: Optional[float] = None,
     reason: Optional[str] = None,
     retry_count: int = 0,
@@ -50,7 +46,7 @@ def _write_event(
     with engine.begin() as conn:
         conn.execute(
             insert(test_events).values(
-                timestamp=_now(),
+                timestamp=now(),
                 status=status,
                 scheduled_for=scheduled_for,
                 current_throughput_mbps=current_throughput_mbps,
@@ -63,10 +59,14 @@ def _write_event(
 
 def _write_result(engine: Engine, data: dict, target_mbps: float) -> int:
     """Insert a speed_tests row and return its id."""
-    dl = data["download"]["bandwidth"] * 8 / 1_000_000
-    ul = data["upload"]["bandwidth"] * 8 / 1_000_000
-    ping = data["ping"]["latency"]
-    jitter = data["ping"]["jitter"]
+    try:
+        dl = data["download"]["bandwidth"] * 8 / 1_000_000
+        ul = data["upload"]["bandwidth"] * 8 / 1_000_000
+        ping = data["ping"]["latency"]
+        jitter = data["ping"]["jitter"]
+    except KeyError as exc:
+        raise RuntimeError(f"Unexpected speedtest JSON structure — missing key {exc}") from exc
+
     loss = data.get("packetLoss", 0.0)
     server = data.get("server", {})
 
@@ -74,7 +74,7 @@ def _write_result(engine: Engine, data: dict, target_mbps: float) -> int:
         result = conn.execute(
             insert(speed_tests)
             .values(
-                timestamp=_now(),
+                timestamp=now(),
                 download_mbps=dl,
                 upload_mbps=ul,
                 ping_ms=ping,
@@ -112,7 +112,8 @@ def _run_speedtest(cli_path: str) -> dict:
         raise RuntimeError("speedtest CLI timed out after 120s")
 
     if proc.returncode != 0:
-        raise RuntimeError(f"speedtest exited {proc.returncode}: {proc.stderr.strip()}")
+        detail = (proc.stderr or proc.stdout).strip()
+        raise RuntimeError(f"speedtest exited {proc.returncode}: {detail}")
 
     try:
         return json.loads(proc.stdout)
@@ -124,11 +125,7 @@ def _run_speedtest(cli_path: str) -> dict:
 # Threshold logic
 # ---------------------------------------------------------------------------
 
-def _check_thresholds(
-    dl_mbps: float,
-    target_mbps: float,
-    conf: cfg.SpeedTestConfig,
-) -> str:
+def _check_thresholds(dl_mbps: float, target_mbps: float, conf: cfg.SpeedTestConfig) -> str:
     """Return 'proceed', 'postpone', or 'skip'."""
     ratio = dl_mbps / target_mbps
     if ratio > conf.hard_threshold:
@@ -142,7 +139,7 @@ def _check_thresholds(
 # Public API
 # ---------------------------------------------------------------------------
 
-def run(engine: Engine, conf: cfg.Config, scheduled_for: Optional[datetime] = None) -> None:
+def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> None:
     """
     Full speed-test cycle with postpone/skip/force logic.
     Blocks until the test completes, is skipped, or is forced after
@@ -189,14 +186,12 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for: Optional[datetime] = No
             time.sleep(st_conf.postpone_retry_minutes * 60)
             continue
 
-        if decision == "postpone" and retry_count >= st_conf.max_postpones:
-            log.warning(
-                "Forcing speed test after %d postpones — blind spot prevention.",
-                retry_count,
-            )
+        if decision == "postpone":
+            log.warning("Forcing speed test after %d postpones — blind spot prevention.", retry_count)
 
-        # Proceed (or forced)
-        status = "forced" if retry_count >= st_conf.max_postpones else "completed"
+        # "forced" only when we ran despite high bandwidth (decision == "postpone").
+        # "completed" for all normal runs, including max_postpones == 0.
+        status = "forced" if decision == "postpone" else "completed"
         log.info("Running speed test (status will be: %s)...", status)
 
         try:
@@ -223,7 +218,6 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for: Optional[datetime] = No
             engine, status,
             scheduled_for=scheduled_for,
             current_throughput_mbps=dl_now,
-            reason=None,
             retry_count=retry_count,
             speed_test_id=test_id,
         )

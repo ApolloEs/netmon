@@ -6,26 +6,26 @@ Writes every result to connectivity_pings and maintains open/closed
 records in outages.
 
 Public API:
-    run_once(engine, conf)   — one full ping cycle across all targets
-    run_loop(engine, conf)   — blocks forever, sleeping ping_interval_seconds
+    run_once(engine, conf, targets) — one full ping cycle across all targets
+    run_loop(engine, conf)          — blocks forever, sleeping ping_interval_seconds
 """
 
 from __future__ import annotations
 
 import logging
-import socket
+import re
+import subprocess
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
 from typing import Dict, Optional
 
-import psutil
 from icmplib import ping as icmp_ping
 from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Engine
 
 from netmon import config as cfg
 from netmon.db import connectivity_pings, outages
+from netmon.utils import now
 
 log = logging.getLogger(__name__)
 
@@ -34,46 +34,29 @@ log = logging.getLogger(__name__)
 # Gateway resolution
 # ---------------------------------------------------------------------------
 
+_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
 def _resolve_gateway() -> Optional[str]:
-    """Return the default gateway IP, or None if it can't be determined."""
+    """Return the default IPv4 gateway, or None if it can't be determined."""
     try:
-        # psutil.net_if_stats gives interface info but not routes.
-        # Use the socket trick: connect to a public IP (no packet sent)
-        # and read the local address — then map that to the gateway via
-        # psutil.net_if_addrs + the AF_INET default route heuristic.
-        #
-        # On Windows, `psutil` doesn't expose the routing table directly.
-        # The most reliable cross-platform approach without extra libs:
-        # open a UDP socket toward 8.8.8.8 and read the outbound interface,
-        # then look up the gateway for that interface via net_if_stats.
-        # Fallback: parse `ipconfig` output.
-        import subprocess
         result = subprocess.run(
-            ["ipconfig"],
-            capture_output=True, text=True, timeout=5
+            ["ipconfig"], capture_output=True, text=True, timeout=5
         )
-        # "Default Gateway" may span multiple lines (IPv6 first, IPv4 on a
-        # continuation line).  Collect all candidate IPs from the gateway
-        # block and return the first plain IPv4 address found.
-        import re
         in_gateway = False
-        ipv4_re = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
         for line in result.stdout.splitlines():
             if "Default Gateway" in line:
                 in_gateway = True
-                # Check the same line first (value after last colon).
                 candidate = line.rsplit(":", 1)[-1].strip()
-                if ipv4_re.match(candidate):
+                if _IPV4_RE.match(candidate):
                     return candidate
             elif in_gateway:
                 stripped = line.strip()
                 if not stripped:
                     in_gateway = False
                     continue
-                # Continuation lines are indented and contain just the value.
-                if ipv4_re.match(stripped):
+                if _IPV4_RE.match(stripped):
                     return stripped
-                # If it's a new label line, we've left the gateway block.
                 if ":" in stripped and not stripped.startswith("2") and not stripped.startswith("fe"):
                     in_gateway = False
         return None
@@ -99,25 +82,59 @@ def resolve_targets(raw_targets: list[str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Outage state (in-memory, per process lifetime)
+# In-memory outage state (per process lifetime)
 # ---------------------------------------------------------------------------
 
 # Maps target → consecutive failure count
 _fail_streak: Dict[str, int] = defaultdict(int)
 
-# Maps target → outage row id (non-None means an outage is open for that target)
+# Maps target → open outage row id (None = no active outage)
 _open_outage: Dict[str, Optional[int]] = defaultdict(lambda: None)
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+def _restore_state(engine: Engine, targets: list[str]) -> None:
+    """
+    Reload outage and streak state from DB after a process restart.
+    Without this, a restart mid-outage would lose track of the open record
+    and need to accumulate a full new failure streak before re-detecting.
+    """
+    with engine.connect() as conn:
+        open_rows = conn.execute(
+            select(outages.c.id, outages.c.trigger)
+            .where(outages.c.ended_at.is_(None))
+            .where(outages.c.trigger.in_(targets))
+        ).fetchall()
+        for row in open_rows:
+            _open_outage[row.trigger] = row.id
+            log.info("Restored open outage #%d for %s", row.id, row.trigger)
 
+        for target in targets:
+            recent = conn.execute(
+                select(connectivity_pings.c.success)
+                .where(connectivity_pings.c.target == target)
+                .order_by(connectivity_pings.c.timestamp.desc())
+                .limit(50)
+            ).fetchall()
+            streak = 0
+            for row in recent:
+                if not row.success:
+                    streak += 1
+                else:
+                    break
+            if streak:
+                _fail_streak[target] = streak
+                log.info("Restored failure streak %d for %s", streak, target)
+
+
+# ---------------------------------------------------------------------------
+# DB writes
+# ---------------------------------------------------------------------------
 
 def _record_ping(engine: Engine, target: str, success: bool, latency_ms: Optional[float]) -> None:
     with engine.begin() as conn:
         conn.execute(
             insert(connectivity_pings).values(
-                timestamp=_now(),
+                timestamp=now(),
                 target=target,
                 success=success,
                 latency_ms=latency_ms,
@@ -129,23 +146,23 @@ def _open_outage_record(engine: Engine, target: str) -> int:
     with engine.begin() as conn:
         result = conn.execute(
             insert(outages)
-            .values(started_at=_now(), trigger=target)
+            .values(started_at=now(), trigger=target)
             .returning(outages.c.id)
         )
         return result.scalar_one()
 
 
 def _close_outage_record(engine: Engine, outage_id: int) -> None:
-    now = _now()
+    closed_at = now()
     with engine.begin() as conn:
         row = conn.execute(
             select(outages.c.started_at).where(outages.c.id == outage_id)
         ).one()
-        duration = int((now - row.started_at).total_seconds())
+        duration = int((closed_at - row.started_at).total_seconds())
         conn.execute(
             update(outages)
             .where(outages.c.id == outage_id)
-            .values(ended_at=now, duration_seconds=duration)
+            .values(ended_at=closed_at, duration_seconds=duration)
         )
     log.info("Outage #%d closed — duration %ds", outage_id, duration)
 
@@ -185,10 +202,7 @@ def _handle_result(
     else:
         _fail_streak[target] += 1
         log.warning("%-15s  FAIL  (streak: %d)", target, _fail_streak[target])
-        if (
-            _fail_streak[target] >= outage_threshold
-            and _open_outage[target] is None
-        ):
+        if _fail_streak[target] >= outage_threshold and _open_outage[target] is None:
             outage_id = _open_outage_record(engine, target)
             _open_outage[target] = outage_id
             log.warning("Outage #%d opened — trigger: %s", outage_id, target)
@@ -217,6 +231,8 @@ def run_loop(engine: Engine, conf: cfg.Config) -> None:
 
     interval = conf.connectivity.ping_interval_seconds
     log.info("Pinger started. Targets: %s  Interval: %ds", targets, interval)
+
+    _restore_state(engine, targets)
 
     while True:
         run_once(engine, conf, targets)

@@ -13,22 +13,18 @@ Public API:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 
 from netmon import config as cfg
 from netmon.db import connectivity_pings, outages
+from netmon.utils import now
 
 log = logging.getLogger(__name__)
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _close(engine: Engine, outage_id: int, ended_at: datetime, started_at: datetime) -> None:
+def _close(engine: Engine, outage_id: int, ended_at, started_at) -> None:
     duration = int((ended_at - started_at).total_seconds())
     with engine.begin() as conn:
         conn.execute(
@@ -55,7 +51,6 @@ def reconcile(engine: Engine, conf: cfg.Config) -> None:
 
     for row in open_outages:
         with engine.connect() as conn:
-            # Fetch recent pings for this target, newest first.
             recent = conn.execute(
                 select(connectivity_pings)
                 .where(connectivity_pings.c.target == row.trigger)
@@ -64,8 +59,6 @@ def reconcile(engine: Engine, conf: cfg.Config) -> None:
             ).fetchall()
 
         if not recent:
-            # No pings at all for this target — close at started_at as a
-            # best-effort record with zero duration.
             log.warning(
                 "Outage #%d has no ping records for target '%s'; closing at start time.",
                 row.id, row.trigger,
@@ -73,23 +66,26 @@ def reconcile(engine: Engine, conf: cfg.Config) -> None:
             _close(engine, row.id, row.started_at, row.started_at)
             continue
 
-        all_success = all(p.success for p in recent)
+        # Require a full streak of `threshold` successes to confirm recovery.
+        # If we have fewer than threshold pings, we can't confirm yet.
+        confirmed_recovery = (
+            len(recent) >= threshold and all(p.success for p in recent)
+        )
 
-        if all_success:
-            # Connection recovered — close at the earliest recent successful
-            # ping, but never before the outage started (guards against stale
-            # ping rows predating this outage record).
+        if confirmed_recovery:
+            # Close at the earliest of the recent successful pings, but never
+            # before the outage started (guards against stale pre-outage rows).
             recovered_at = max(min(p.timestamp for p in recent), row.started_at)
             _close(engine, row.id, recovered_at, row.started_at)
         else:
-            # Still failing or mixed — close at the last ping timestamp
-            # so the record isn't left hanging indefinitely (e.g. pinger
-            # was stopped while the outage was ongoing).
+            # Still failing, mixed, or not enough data to confirm recovery.
+            # Close at the last known ping so the record doesn't hang open
+            # indefinitely (e.g. pinger was stopped during the outage).
             last_ping_at = max(p.timestamp for p in recent)
-            if last_ping_at > row.started_at:
-                log.warning(
-                    "Outage #%d appears ongoing or pinger stopped; "
-                    "closing at last known ping (%s).",
-                    row.id, last_ping_at.isoformat(),
-                )
-                _close(engine, row.id, last_ping_at, row.started_at)
+            close_at = max(last_ping_at, row.started_at)
+            log.warning(
+                "Outage #%d unresolved (pinger stopped or still failing); "
+                "closing at last known ping (%s).",
+                row.id, close_at.isoformat(),
+            )
+            _close(engine, row.id, close_at, row.started_at)
