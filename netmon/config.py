@@ -21,6 +21,7 @@ class SpeedTestConfig:
     hard_threshold: float
     postpone_retry_minutes: int
     max_postpones: int
+    cli_path: str = "speedtest"
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ def load(path: Path = CONFIG_PATH) -> Config:
             hard_threshold=st["hard_threshold"],
             postpone_retry_minutes=st["postpone_retry_minutes"],
             max_postpones=st["max_postpones"],
+            cli_path=st.get("cli_path", "speedtest"),
         ),
         connectivity=ConnectivityConfig(
             ping_interval_seconds=conn["ping_interval_seconds"],

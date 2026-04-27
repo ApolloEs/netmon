@@ -6,6 +6,7 @@ speed_test:
   hard_threshold: 0.85     # skip if current use > 85% of target
   postpone_retry_minutes: 15
   max_postpones: 3
+  cli_path: speedtest   # full path to exe, or just "speedtest" if it's on PATH
 
 connectivity:
   ping_interval_seconds: 45
