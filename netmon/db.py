@@ -77,7 +77,14 @@ Index("idx_pings_timestamp", connectivity_pings.c.timestamp)
 
 
 def make_engine(db_url: str) -> Engine:
-    return create_engine(db_url, future=True)
+    return create_engine(
+        db_url,
+        future=True,
+        pool_size=3,
+        max_overflow=2,
+        pool_recycle=1800,  # recycle connections after 30 min to avoid stale connections
+        pool_pre_ping=True, # test connection health before handing it to a job
+    )
 
 
 def create_tables(engine: Engine) -> None:

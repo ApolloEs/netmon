@@ -92,7 +92,7 @@ _fail_streak: Dict[str, int] = defaultdict(int)
 _open_outage: Dict[str, Optional[int]] = defaultdict(lambda: None)
 
 
-def _restore_state(engine: Engine, targets: list[str]) -> None:
+def restore_state(engine: Engine, targets: list[str]) -> None:
     """
     Reload outage and streak state from DB after a process restart.
     Without this, a restart mid-outage would lose track of the open record
@@ -232,7 +232,7 @@ def run_loop(engine: Engine, conf: cfg.Config) -> None:
     interval = conf.connectivity.ping_interval_seconds
     log.info("Pinger started. Targets: %s  Interval: %ds", targets, interval)
 
-    _restore_state(engine, targets)
+    restore_state(engine, targets)
 
     while True:
         run_once(engine, conf, targets)
