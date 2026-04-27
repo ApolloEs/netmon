@@ -14,8 +14,8 @@ build/
 venv/
 env/
 
-# Config with secrets
-# (commit config.yaml as a template; real passwords stay local)
+# Config with secrets — use config.example.yaml as a template
+config.yaml
 
 # IDE
 .vscode/
