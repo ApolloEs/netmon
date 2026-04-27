@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetMon</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- ── Status Strip ─────────────────────────────────────────────── -->
+  <header class="status-strip">
+    <div class="status-left">
+      <span id="status-dot" class="dot dot--unknown"></span>
+      <span id="status-label">connecting…</span>
+    </div>
+    <div class="status-center">
+      <div class="stat">
+        <span class="stat-label">Download</span>
+        <span id="stat-dl" class="stat-value">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Upload</span>
+        <span id="stat-ul" class="stat-value">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Latency</span>
+        <span id="stat-latency" class="stat-value">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">% of target</span>
+        <span id="stat-pct" class="stat-value">—</span>
+      </div>
+    </div>
+    <div class="status-right">
+      <span id="last-updated" class="dim">—</span>
+    </div>
+  </header>
+
+  <!-- ── Open Outage Banner ─────────────────────────────────────── -->
+  <div id="outage-banner" class="outage-banner hidden">
+    ⚠ Outage in progress — trigger: <span id="outage-trigger">—</span>,
+    started <span id="outage-since">—</span>
+  </div>
+
+  <main>
+
+    <!-- ── Speed over Time ───────────────────────────────────────── -->
+    <section class="card">
+      <h2>Speed over Time <span class="dim">(last 30 days)</span></h2>
+      <div class="chart-wrap">
+        <canvas id="speedChart"></canvas>
+      </div>
+    </section>
+
+    <!-- ── Adherence + Outage row ────────────────────────────────── -->
+    <div class="two-col">
+
+      <section class="card">
+        <h2>Target Adherence</h2>
+        <p class="dim small">% of tests where download ≥ 80% of target</p>
+        <div class="adherence-grid">
+          <div class="adherence-block">
+            <div class="adherence-label">7 days</div>
+            <div id="adh-7d-pct" class="adherence-pct">—</div>
+            <div id="adh-7d-detail" class="adherence-detail dim">—</div>
+          </div>
+          <div class="adherence-block">
+            <div class="adherence-label">30 days</div>
+            <div id="adh-30d-pct" class="adherence-pct">—</div>
+            <div id="adh-30d-detail" class="adherence-detail dim">—</div>
+          </div>
+        </div>
+        <div id="adh-stats" class="adh-stats dim small"></div>
+      </section>
+
+      <section class="card">
+        <h2>Recent Outages <span class="dim">(last 30 days)</span></h2>
+        <div id="outage-list" class="outage-list">
+          <span class="dim">Loading…</span>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ── Packet Loss Heatmap ───────────────────────────────────── -->
+    <section class="card">
+      <h2>Packet Loss by Hour <span class="dim">(last 7 days, UTC)</span></h2>
+      <div id="heatmap-wrap" class="heatmap-wrap">
+        <span class="dim">Loading…</span>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script>const TARGET_MBPS = {{ target_mbps }};</script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
