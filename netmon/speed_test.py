@@ -139,11 +139,14 @@ def _check_thresholds(dl_mbps: float, target_mbps: float, conf: cfg.SpeedTestCon
 # Public API
 # ---------------------------------------------------------------------------
 
-def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> None:
+def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> Optional[int]:
     """
     Full speed-test cycle with postpone/skip/force logic.
     Blocks until the test completes, is skipped, or is forced after
     max_postpones consecutive postponements.
+
+    Returns the new speed_tests row id, or None if no test ran
+    (skipped or errored).
     """
     st_conf = conf.speed_test
     retry_count = 0
@@ -167,7 +170,7 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> None:
                 reason=f"current use {dl_now:.2f} Mbps > hard threshold",
                 retry_count=retry_count,
             )
-            return
+            return None
 
         if decision == "postpone" and retry_count < st_conf.max_postpones:
             log.info(
@@ -205,7 +208,7 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> None:
                 reason=str(exc),
                 retry_count=retry_count,
             )
-            return
+            return None
 
         test_id = _write_result(engine, data, conf.target_mbps)
         dl_result = data["download"]["bandwidth"] * 8 / 1_000_000
@@ -221,4 +224,4 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> None:
             retry_count=retry_count,
             speed_test_id=test_id,
         )
-        return
+        return test_id

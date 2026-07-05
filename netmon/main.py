@@ -38,11 +38,12 @@ def _pinger_job(engine, conf, targets):
 
 
 def _speed_test_job(engine, conf):
-    speed_test.run(engine, conf, scheduled_for=now())
+    test_id = speed_test.run(engine, conf, scheduled_for=now())
     try:
-        history = queries.get_speed_history(engine, days=30)
-        if history:
-            events.publish("speed_update", history[-1])
+        if test_id is not None:
+            history = queries.get_speed_history(engine, days=30)
+            if history:
+                events.publish("speed_update", history[-1])
         events.publish("status_update", queries.get_status(engine))
     except Exception as exc:
         log.warning("Failed to publish speed event: %s", exc)
@@ -172,7 +173,9 @@ def main() -> None:
         hours=24,
         id="cleanup",
         name="Ping Retention Cleanup",
-        next_run_time=now() + timedelta(hours=24),
+        # First run shortly after startup: if the process restarts more often
+        # than the 24h interval, retention would otherwise never run.
+        next_run_time=now() + timedelta(minutes=5),
     )
 
     log.info(

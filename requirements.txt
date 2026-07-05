@@ -3,5 +3,5 @@ sqlalchemy>=2.0
 psycopg2-binary>=2.9
 icmplib>=3.0
 psutil>=5.9
-apscheduler>=3.10
+apscheduler>=3.10,<4
 flask>=3.0

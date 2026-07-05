@@ -23,23 +23,21 @@ def get_status(engine: Engine) -> dict[str, Any]:
     with engine.connect() as conn:
         ping_rows = conn.execute(text("""
             SELECT DISTINCT ON (target)
-                target, success, latency_ms,
-                timestamp AT TIME ZONE 'UTC' AS timestamp
+                target, success, latency_ms, timestamp
             FROM connectivity_pings
             ORDER BY target, timestamp DESC
         """)).fetchall()
 
         speed_row = conn.execute(text("""
             SELECT download_mbps, upload_mbps, ping_ms,
-                   pct_of_target, target_mbps,
-                   timestamp AT TIME ZONE 'UTC' AS timestamp
+                   pct_of_target, target_mbps, timestamp
             FROM speed_tests
             ORDER BY timestamp DESC
             LIMIT 1
         """)).fetchone()
 
         open_outage = conn.execute(text("""
-            SELECT id, started_at AT TIME ZONE 'UTC' AS started_at, trigger
+            SELECT id, started_at, trigger
             FROM outages
             WHERE ended_at IS NULL
             ORDER BY started_at DESC
@@ -61,11 +59,19 @@ def get_status(engine: Engine) -> dict[str, Any]:
     else:
         status = "unknown"
 
+    last_speed = _row_to_dict(speed_row) if speed_row else None
+    if last_speed:
+        last_speed["timestamp"] = last_speed["timestamp"].isoformat()
+
+    open_outage_dict = _row_to_dict(open_outage) if open_outage else None
+    if open_outage_dict:
+        open_outage_dict["started_at"] = open_outage_dict["started_at"].isoformat()
+
     return {
         "status": status,
         "targets": targets,
-        "last_speed": _row_to_dict(speed_row) if speed_row else None,
-        "open_outage": _row_to_dict(open_outage) if open_outage else None,
+        "last_speed": last_speed,
+        "open_outage": open_outage_dict,
     }
 
 
@@ -75,7 +81,7 @@ def get_speed_history(engine: Engine, days: int = 30) -> list[dict]:
         rows = conn.execute(
             text("""
                 SELECT
-                    timestamp AT TIME ZONE 'UTC' AS timestamp,
+                    timestamp,
                     download_mbps, upload_mbps, ping_ms,
                     pct_of_target, target_mbps
                 FROM speed_tests
@@ -96,7 +102,7 @@ def get_test_events(engine: Engine, days: int = 30) -> list[dict]:
         rows = conn.execute(
             text("""
                 SELECT
-                    timestamp AT TIME ZONE 'UTC' AS timestamp,
+                    timestamp,
                     status, reason
                 FROM test_events
                 WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
@@ -118,8 +124,8 @@ def get_outages(engine: Engine, days: int = 30) -> list[dict]:
             text("""
                 SELECT
                     id,
-                    started_at AT TIME ZONE 'UTC' AS started_at,
-                    COALESCE(ended_at, NOW()) AT TIME ZONE 'UTC' AS ended_at,
+                    started_at,
+                    COALESCE(ended_at, NOW()) AS ended_at,
                     duration_seconds,
                     trigger,
                     ended_at IS NULL AS is_open

@@ -6,6 +6,15 @@ handles the case where the process was killed while an outage was open,
 leaving a record with no ended_at. Call reconcile() at startup and
 periodically as a background safety net.
 
+An open outage is closed only when one of these holds:
+  - recovery is confirmed (threshold consecutive successful pings), or
+  - the target has no pings at all (data anomaly), or
+  - the newest ping for the target is stale — the pinger stopped
+    reporting — in which case we close at the last known ping.
+
+An outage that is still failing with fresh pings is genuinely ongoing
+and must stay open; closing it would destroy the duration evidence.
+
 Public API:
     reconcile(engine, conf) — close any outage records that should be closed.
 """
@@ -13,6 +22,7 @@ Public API:
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
@@ -22,6 +32,10 @@ from netmon.db import connectivity_pings, outages
 from netmon.utils import now
 
 log = logging.getLogger(__name__)
+
+# The pinger is considered dead for a target when its newest ping is older
+# than this many ping intervals.
+STALE_INTERVALS = 10
 
 
 def _close(engine: Engine, outage_id: int, ended_at, started_at) -> None:
@@ -38,6 +52,9 @@ def _close(engine: Engine, outage_id: int, ended_at, started_at) -> None:
 def reconcile(engine: Engine, conf: cfg.Config) -> None:
     """Close any outage records that should be closed."""
     threshold = conf.connectivity.outage_threshold_failures
+    stale_after = timedelta(
+        seconds=STALE_INTERVALS * conf.connectivity.ping_interval_seconds
+    )
 
     with engine.connect() as conn:
         open_outages = conn.execute(
@@ -77,15 +94,23 @@ def reconcile(engine: Engine, conf: cfg.Config) -> None:
             # before the outage started (guards against stale pre-outage rows).
             recovered_at = max(min(p.timestamp for p in recent), row.started_at)
             _close(engine, row.id, recovered_at, row.started_at)
-        else:
-            # Still failing, mixed, or not enough data to confirm recovery.
-            # Close at the last known ping so the record doesn't hang open
-            # indefinitely (e.g. pinger was stopped during the outage).
-            last_ping_at = max(p.timestamp for p in recent)
+            continue
+
+        last_ping_at = max(p.timestamp for p in recent)
+        if now() - last_ping_at > stale_after:
+            # The pinger stopped reporting on this target — nothing more will
+            # confirm recovery, so close at the last known ping.
             close_at = max(last_ping_at, row.started_at)
             log.warning(
-                "Outage #%d unresolved (pinger stopped or still failing); "
-                "closing at last known ping (%s).",
-                row.id, close_at.isoformat(),
+                "Outage #%d: no pings for '%s' since %s (pinger stopped); "
+                "closing at last known ping.",
+                row.id, row.trigger, last_ping_at.isoformat(),
             )
             _close(engine, row.id, close_at, row.started_at)
+        else:
+            # Pings are fresh and still failing (or mixed): the outage is
+            # genuinely ongoing. Leave it open — the pinger will close it.
+            log.info(
+                "Outage #%d still ongoing for '%s' (last ping %s); leaving open.",
+                row.id, row.trigger, last_ping_at.isoformat(),
+            )
