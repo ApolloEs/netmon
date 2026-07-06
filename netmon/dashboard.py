@@ -73,6 +73,7 @@ def create_app(rt: Runtime) -> Flask:
             "data": queries.get_speed_history(rt.engine, days=30),
             "events": queries.get_test_events(rt.engine, days=30),
             "target_mbps": rt.conf.target_mbps,
+            "interval_hours": rt.conf.speed_test.interval_hours,
         })
 
     @app.route("/api/outages")

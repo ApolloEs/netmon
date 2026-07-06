@@ -108,6 +108,20 @@ main {
   height: 280px;
 }
 
+.chart-ranges {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.range-btn { padding: 4px 16px; font-size: 12px; color: var(--dim); }
+.range-btn.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(31, 111, 235, 0.15);
+}
+
 /* ── Adherence ──────────────────────────────────────────────────── */
 .adherence-grid {
   display: grid;
@@ -317,6 +331,12 @@ main {
 .settings-group input:focus, .settings-group textarea:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.settings-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .settings-stats h3 {

@@ -7,6 +7,89 @@ Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", san
 
 let speedChart = null;
 
+// Connection-outage intervals ({start, end} in epoch ms) drawn as red bands.
+let outageBands = [];
+
+// Periods with no speed-test attempts (app off) drawn as a neutral wash.
+let noDataGaps = [];
+let attemptTimes = [];              // epoch ms of every test attempt
+let gapThresholdMs = 2 * 3600e3;    // max(1h, 2 × interval); set on load
+
+function computeNoDataGaps() {
+  const now = Date.now();
+  const windowStart = now - 30 * 864e5;
+  const times = [...attemptTimes].sort((a, b) => a - b);
+  const gaps = [];
+  let prev = windowStart;
+  for (const t of times) {
+    if (t - prev > gapThresholdMs) gaps.push({ start: prev, end: t });
+    prev = Math.max(prev, t);
+  }
+  if (now - prev > gapThresholdMs) gaps.push({ start: prev, end: now });
+  noDataGaps = gaps;
+}
+
+// Client display preference: show/hide failed-test (error) markers.
+const PREF_ERROR_DOTS = 'netmon.showErrorDots';
+function showErrorDots() {
+  return localStorage.getItem(PREF_ERROR_DOTS) !== 'false';
+}
+
+// Washes out periods where no speed tests were attempted (NetMon not
+// running), so empty plot area isn't mistaken for a healthy quiet line.
+const noDataPlugin = {
+  id: 'noData',
+  beforeDatasetsDraw(chart) {
+    if (!noDataGaps.length) return;
+    const x = chart.scales.x;
+    const area = chart.chartArea;
+    const ctx = chart.ctx;
+    ctx.save();
+    for (const g of noDataGaps) {
+      let x0 = x.getPixelForValue(g.start);
+      let x1 = x.getPixelForValue(g.end);
+      if (x1 < area.left || x0 > area.right) continue;
+      x0 = Math.max(x0, area.left);
+      x1 = Math.min(x1, area.right);
+      ctx.fillStyle = 'rgba(139, 148, 158, 0.07)';
+      ctx.fillRect(x0, area.top, x1 - x0, area.height);
+      if (x1 - x0 > 90) {
+        ctx.fillStyle = 'rgba(139, 148, 158, 0.4)';
+        ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('no data', (x0 + x1) / 2, area.top + area.height / 2);
+      }
+    }
+    ctx.restore();
+  },
+};
+
+// Draws translucent red bands behind the datasets for each connection
+// outage, so the plot area itself "turns red" while the line was down.
+const outageBandsPlugin = {
+  id: 'outageBands',
+  beforeDatasetsDraw(chart) {
+    if (!outageBands.length) return;
+    const x = chart.scales.x;
+    const area = chart.chartArea;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(248, 81, 73, 0.16)';
+    for (const b of outageBands) {
+      let x0 = x.getPixelForValue(b.start);
+      let x1 = x.getPixelForValue(b.end);
+      // Keep short outages visible at month scale (min 2px wide).
+      if (x1 - x0 < 2) { const mid = (x0 + x1) / 2; x0 = mid - 1; x1 = mid + 1; }
+      if (x1 < area.left || x0 > area.right) continue;
+      x0 = Math.max(x0, area.left);
+      x1 = Math.min(x1, area.right);
+      ctx.fillRect(x0, area.top, x1 - x0, area.height);
+    }
+    ctx.restore();
+  },
+};
+
 // ── Bootstrap ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await Promise.all([
@@ -19,6 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   connectSSE();
   initSettings();
   initRunTest();
+  initChartRanges();
 });
 
 
@@ -76,12 +160,38 @@ function applyStatus(data) {
 async function loadSpeedHistory() {
   const data = await fetchJson('/api/speed-history');
   if (!data) return;
+
+  // Every test attempt marks the app as alive at that moment: completed
+  // tests (data) plus postponed/skipped/forced/error events.
+  attemptTimes = [
+    ...data.data.map(r => new Date(r.timestamp).getTime()),
+    ...data.events.map(e => new Date(e.timestamp).getTime()),
+  ];
+  gapThresholdMs = Math.max(3600e3, 2 * (data.interval_hours || 3) * 3600e3);
+  computeNoDataGaps();
+
   buildSpeedChart(data.data, data.events, data.target_mbps);
 }
 
+// Insert a null point wherever a no-data gap separates two measurements,
+// so the line breaks instead of bridging periods the app wasn't running.
+function insertGapBreaks(points) {
+  if (points.length < 2) return points;
+  const out = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prevMs = new Date(points[i - 1].x).getTime();
+    const curMs = new Date(points[i].x).getTime();
+    if (noDataGaps.some(g => g.start >= prevMs && g.end <= curMs)) {
+      out.push({ x: (prevMs + curMs) / 2, y: null });
+    }
+    out.push(points[i]);
+  }
+  return out;
+}
+
 function buildSpeedChart(rows, eventRows, targetMbps) {
-  const dlData = rows.map(r => ({ x: r.timestamp, y: round1(r.download_mbps) }));
-  const ulData = rows.map(r => ({ x: r.timestamp, y: round1(r.upload_mbps) }));
+  const dlData = insertGapBreaks(rows.map(r => ({ x: r.timestamp, y: round1(r.download_mbps) })));
+  const ulData = insertGapBreaks(rows.map(r => ({ x: r.timestamp, y: round1(r.upload_mbps) })));
 
   // Annotation scatter datasets (postponed / skipped / error / forced)
   const STATUS_COLORS = {
@@ -100,11 +210,13 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
     pointRadius: 5,
     pointHoverRadius: 7,
     showLine: false,
+    hidden: status === 'error' && !showErrorDots(),
   }));
 
   const ctx = document.getElementById('speedChart').getContext('2d');
   speedChart = new Chart(ctx, {
     type: 'line',
+    plugins: [noDataPlugin, outageBandsPlugin],  // order: outage red on top
     data: {
       datasets: [
         {
@@ -147,8 +259,20 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
       scales: {
         x: {
           type: 'time',
-          time: { tooltipFormat: 'MMM d, HH:mm' },
-          grid: { color: '#21262d' },
+          time: {
+            tooltipFormat: 'MMM d, HH:mm',
+            displayFormats: { day: 'MMM d' },
+          },
+          ticks: {
+            major: { enabled: true },  // day boundaries become "MMM d"
+            font: c => c.tick && c.tick.major
+              ? { weight: 'bold' }
+              : {},
+          },
+          grid: {
+            // Brighter gridline at midnights so days read at a glance.
+            color: c => c.tick && c.tick.major ? '#3d444d' : '#21262d',
+          },
         },
         y: {
           title: { display: true, text: 'Mbps' },
@@ -170,6 +294,8 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
 
 function appendSpeedPoint(data) {
   if (!speedChart) return;
+  attemptTimes.push(new Date(data.timestamp).getTime());
+  computeNoDataGaps();
   const ts = data.timestamp;
   speedChart.data.datasets[0].data.push({ x: ts, y: round1(data.download_mbps) });
   speedChart.data.datasets[1].data.push({ x: ts, y: round1(data.upload_mbps) });
@@ -212,6 +338,45 @@ async function loadOutages() {
   const rows = await fetchJson('/api/outages');
   if (!rows) return;
   renderOutages(rows);
+  updateOutageBands(rows);
+}
+
+function updateOutageBands(rows) {
+  outageBands = rows
+    .filter(r => r.type === 'connection')
+    .map(r => ({
+      start: new Date(r.started_at).getTime(),
+      end: new Date(r.ended_at).getTime(),  // NOW-coalesced while open
+    }));
+  if (speedChart) speedChart.update('none');
+}
+
+
+// ── Chart time range ──────────────────────────────────────────────────
+function initChartRanges() {
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-btn')
+        .forEach(b => b.classList.toggle('active', b === btn));
+      applyChartRange(btn.dataset.range);
+    });
+  });
+}
+
+function applyChartRange(range) {
+  if (!speedChart) return;
+  const spans = { day: 864e5, week: 7 * 864e5, month: 30 * 864e5 };
+  if (spans[range]) {
+    // Fixed windows so Day ⊂ Week ⊂ Month always holds; empty space on
+    // the left simply means no data recorded that far back yet.
+    speedChart.options.scales.x.min = Date.now() - spans[range];
+    speedChart.options.scales.x.max = Date.now();
+  } else {
+    // All: auto-fit to whatever data is loaded (page-load default).
+    speedChart.options.scales.x.min = undefined;
+    speedChart.options.scales.x.max = undefined;
+  }
+  speedChart.update();
 }
 
 function renderOutages(rows) {
@@ -299,6 +464,11 @@ function connectSSE() {
     } else if (data.type === 'speed_test_done') {
       setRunTestState(false, data.ok ? undefined : '✕ Test failed');
       if (!data.ok) setTimeout(() => setRunTestState(false), 4000);
+      // Any attempt (even a failed one) proves the app is alive — keep the
+      // no-data wash from creeping over the live edge of the chart.
+      attemptTimes.push(Date.now());
+      computeNoDataGaps();
+      if (speedChart) speedChart.update('none');
     }
   };
 
@@ -360,6 +530,20 @@ function initSettings() {
   $s('settings-restart').addEventListener('click', restartMonitoring);
   $s('settings-form').addEventListener('input', updateSettingsStats);
   $s('settings-form').addEventListener('submit', e => { e.preventDefault(); saveSettings(); });
+
+  // Display preference: client-side only (localStorage), applies instantly —
+  // independent of the Save / Restart-monitoring flow.
+  const errChk = $s('set-show-errors');
+  errChk.checked = showErrorDots();
+  errChk.addEventListener('change', () => {
+    localStorage.setItem(PREF_ERROR_DOTS, String(errChk.checked));
+    if (!speedChart) return;
+    const idx = speedChart.data.datasets.findIndex(d => d.label === 'Error');
+    if (idx >= 0) {
+      speedChart.setDatasetVisibility(idx, errChk.checked);
+      speedChart.update();
+    }
+  });
 }
 
 async function openSettings() {

@@ -53,6 +53,12 @@
       <div class="chart-wrap">
         <canvas id="speedChart"></canvas>
       </div>
+      <div class="chart-ranges">
+        <button class="btn range-btn" data-range="day">Day</button>
+        <button class="btn range-btn" data-range="week">Week</button>
+        <button class="btn range-btn" data-range="month">Month</button>
+        <button class="btn range-btn active" data-range="all">All</button>
+      </div>
     </section>
 
     <!-- ── Adherence + Outage row ────────────────────────────────── -->
@@ -150,6 +156,14 @@
           </label>
           <label>Ping targets (one per line, <code>gateway</code> allowed)
             <textarea id="set-conn-targets" rows="4" spellcheck="false">{{ settings.connectivity.ping_targets | join('\n') }}</textarea>
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Display</h3>
+          <label class="settings-check">
+            <span>Show failed-test markers (red dots)</span>
+            <input type="checkbox" id="set-show-errors" checked>
           </label>
         </div>
       </form>
