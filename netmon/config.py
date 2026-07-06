@@ -43,6 +43,15 @@ class DashboardConfig:
 
 
 @dataclass(frozen=True)
+class ReportConfig:
+    """Optional identity lines for the ISP evidence report header."""
+    customer_name: str = ""
+    account_number: str = ""
+    isp_name: str = ""
+    plan_name: str = ""
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str
     file: str
@@ -58,6 +67,7 @@ class Config:
     database: DatabaseConfig
     dashboard: DashboardConfig
     logging: LoggingConfig
+    report: ReportConfig
 
 
 def _validate(conf: Config) -> None:
@@ -96,6 +106,7 @@ def _from_raw(raw: dict) -> Config:
 
     try:
         lg = raw.get("logging", {})
+        rp = raw.get("report") or {}
         conf = Config(
             target_mbps=raw["target_mbps"],
             speed_test=SpeedTestConfig(
@@ -121,6 +132,12 @@ def _from_raw(raw: dict) -> Config:
                 file=lg.get("file", "netmon.log"),
                 max_bytes=lg.get("max_bytes", 10_485_760),
                 backup_count=lg.get("backup_count", 5),
+            ),
+            report=ReportConfig(
+                customer_name=rp.get("customer_name", ""),
+                account_number=rp.get("account_number", ""),
+                isp_name=rp.get("isp_name", ""),
+                plan_name=rp.get("plan_name", ""),
             ),
         )
     except KeyError as exc:

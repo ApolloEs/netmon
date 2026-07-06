@@ -6,3 +6,4 @@ psutil>=5.9
 apscheduler>=3.10,<4
 flask>=3.0
 ruamel.yaml>=0.18
+waitress>=3.0

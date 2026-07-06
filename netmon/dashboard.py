@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 from netmon import config as cfg
-from netmon import events, jobs, pinger, queries, speed_test
+from netmon import events, jobs, pinger, queries, report as report_mod, speed_test
 from netmon.runtime import Runtime
 
 log = logging.getLogger(__name__)
@@ -174,6 +174,15 @@ def create_app(rt: Runtime) -> Flask:
             log.warning("Failed to publish post-restart status: %s", exc)
 
         return jsonify({"ok": True, "settings": _settings_snapshot(new_conf)})
+
+    @app.route("/report")
+    def report_page():
+        """Self-contained ISP evidence report (print to PDF from the browser)."""
+        try:
+            days = max(1, min(365, int(request.args.get("days", 30))))
+        except ValueError:
+            days = 30
+        return report_mod.render_report(rt.engine, rt.conf, days=days)
 
     @app.route("/api/speed-test/run", methods=["POST"])
     def api_run_speed_test():

@@ -19,6 +19,7 @@ from pathlib import Path
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
+from waitress import serve as waitress_serve
 
 from netmon import cleanup, config as cfg, db, jobs, outage_detector, pinger
 from netmon.dashboard import create_app
@@ -29,6 +30,25 @@ log = logging.getLogger(__name__)
 
 
 # ── Scheduler setup ───────────────────────────────────────────────────
+
+def _first_speed_test_time(engine, interval_hours: float):
+    """
+    First speed-test run: last recorded test + interval, clamped to
+    [now + 15s, now + interval]. Prevents a restart loop from burning
+    300-500 MB per cycle while behaving like a fresh install when the
+    table is empty.
+    """
+    from sqlalchemy import func, select
+
+    with engine.connect() as conn:
+        last = conn.execute(select(func.max(db.speed_tests.c.timestamp))).scalar()
+
+    earliest = now() + timedelta(seconds=15)
+    latest = now() + timedelta(hours=interval_hours)
+    if last is None:
+        return earliest
+    return min(max(last + timedelta(hours=interval_hours), earliest), latest)
+
 
 def _build_scheduler() -> BlockingScheduler:
     return BlockingScheduler(
@@ -102,14 +122,15 @@ def main() -> None:
     rt.targets = targets
 
     # ── Dashboard thread ─────────────────────────────────────────────
+    # waitress instead of Flask's dev server: production-grade, works on
+    # Windows and the Pi. 8 threads — each SSE client parks one.
     flask_app = create_app(rt)
     dash_thread = threading.Thread(
-        target=lambda: flask_app.run(
+        target=lambda: waitress_serve(
+            flask_app,
             host=conf.dashboard.host,
             port=conf.dashboard.port,
-            debug=False,
-            use_reloader=False,
-            threaded=True,
+            threads=8,
         ),
         name="dashboard",
         daemon=True,
@@ -131,13 +152,15 @@ def main() -> None:
         next_run_time=now(),
     )
 
+    first_test = _first_speed_test_time(engine, conf.speed_test.interval_hours)
+    log.info("First speed test scheduled for %s.", first_test.isoformat())
     scheduler.add_job(
         lambda: jobs.speed_test_job(rt),
         trigger="interval",
         hours=conf.speed_test.interval_hours,
         id="speed_test",
         name="Speed Test",
-        next_run_time=now() + timedelta(seconds=60),
+        next_run_time=first_test,
     )
 
     scheduler.add_job(

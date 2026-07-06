@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<title>NetMon Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: A4; margin: 14mm; }
+  html { background: #f0f0f0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a1a; font-size: 13px; line-height: 1.5;
+    background: #fff; max-width: 800px; margin: 0 auto; padding: 28px 36px;
+  }
+  h1 { font-size: 21px; margin-bottom: 2px; }
+  h2 { font-size: 15px; margin: 26px 0 10px; border-bottom: 2px solid #1f6feb; padding-bottom: 4px; }
+  .subtitle { color: #555; margin-bottom: 18px; }
+  section { page-break-inside: avoid; }
+
+  .toolbar {
+    position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ddd;
+    padding: 8px 0; margin-bottom: 16px; display: flex; gap: 8px; align-items: center;
+  }
+  .toolbar button, .toolbar a {
+    font: inherit; padding: 4px 12px; border: 1px solid #bbb; border-radius: 5px;
+    background: #fff; cursor: pointer; text-decoration: none; color: #1a1a1a;
+  }
+  .toolbar button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .toolbar .spacer { flex: 1; }
+
+  table.meta { margin: 10px 0 4px; }
+  table.meta td { padding: 2px 14px 2px 0; vertical-align: bottom; }
+  table.meta td.lbl { color: #555; white-space: nowrap; }
+  .fill { display: inline-block; min-width: 190px; border-bottom: 1px solid #999; }
+
+  .summary { display: flex; gap: 12px; margin: 12px 0; }
+  .sumbox {
+    flex: 1; border: 1px solid #ddd; border-radius: 7px; padding: 12px; text-align: center;
+  }
+  .sumbox .big { font-size: 24px; font-weight: 700; color: #1f6feb; }
+  .sumbox .big.bad { color: #c0392b; }
+  .sumbox .lbl { font-size: 11px; color: #555; margin-top: 2px; }
+
+  table.data { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  table.data th, table.data td {
+    border: 1px solid #d8d8d8; padding: 5px 10px; text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table.data th { background: #f4f6f8; font-weight: 600; }
+  table.data th:first-child, table.data td:first-child { text-align: left; }
+  table.data tr.total td { font-weight: 700; background: #f9fafb; }
+
+  .chart-box { height: 230px; margin: 10px 0 4px; }
+  .note { font-size: 11.5px; color: #555; margin: 6px 0; }
+  .highlight { background: #fff6e0; padding: 8px 12px; border-left: 3px solid #d29922; margin: 8px 0; }
+  footer { margin-top: 30px; font-size: 11px; color: #888; border-top: 1px solid #ddd; padding-top: 8px; }
+
+  @media print {
+    html { background: #fff; }
+    body { max-width: none; padding: 0; }
+    .toolbar { display: none; }
+    .chart-box { height: 210px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="lang-el" onclick="applyLang('el')" class="active">ΕΛ</button>
+  <button id="lang-en" onclick="applyLang('en')">EN</button>
+  <span class="spacer"></span>
+  <span data-i18n="periodLinks" class="note"></span>
+  <a href="?days=7">7</a><a href="?days=30">30</a><a href="?days=90">90</a>
+  <button onclick="window.print()" data-i18n="print"></button>
+</div>
+
+<h1 data-i18n="title"></h1>
+<div class="subtitle" data-i18n="subtitle"></div>
+
+<section>
+  <table class="meta">
+    <tr><td class="lbl" data-i18n="mCustomer"></td><td id="v-customer"></td>
+        <td class="lbl" data-i18n="mIsp"></td><td id="v-isp"></td></tr>
+    <tr><td class="lbl" data-i18n="mAccount"></td><td id="v-account"></td>
+        <td class="lbl" data-i18n="mPlan"></td><td id="v-plan"></td></tr>
+    <tr><td class="lbl" data-i18n="mPeriod"></td><td id="v-period"></td>
+        <td class="lbl" data-i18n="mGenerated"></td><td id="v-generated"></td></tr>
+    <tr><td class="lbl" data-i18n="mTarget"></td><td id="v-target"></td><td></td><td></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2 data-i18n="sumTitle"></h2>
+  <div class="summary">
+    <div class="sumbox"><div class="big" id="v-sum-median"></div><div class="lbl" data-i18n="sumMedian"></div></div>
+    <div class="sumbox"><div class="big" id="v-sum-adh"></div><div class="lbl" data-i18n="sumAdh"></div></div>
+    <div class="sumbox"><div class="big bad" id="v-sum-outages"></div><div class="lbl" data-i18n="sumOutages"></div></div>
+    <div class="sumbox"><div class="big bad" id="v-sum-downtime"></div><div class="lbl" data-i18n="sumDowntime"></div></div>
+  </div>
+</section>
+
+<section>
+  <h2 data-i18n="statsTitle"></h2>
+  <table class="data" id="stats-table"></table>
+  <div class="note"><span data-i18n="statsTests"></span> <b id="v-test-count"></b></div>
+</section>
+
+<section>
+  <h2 data-i18n="todTitle"></h2>
+  <table class="data" id="tod-table"></table>
+  <div class="highlight" data-i18n="todNote"></div>
+</section>
+
+<section>
+  <h2 data-i18n="chartSpeedTitle"></h2>
+  <div class="chart-box"><canvas id="speedChart"></canvas></div>
+</section>
+
+<section>
+  <h2 data-i18n="chartHourTitle"></h2>
+  <div class="chart-box"><canvas id="hourChart"></canvas></div>
+</section>
+
+<section>
+  <h2 data-i18n="outTitle"></h2>
+  <table class="data" id="outage-table"></table>
+  <div class="note" id="v-host-note"></div>
+  <div class="note" data-i18n="outDetectNote"></div>
+</section>
+
+<section>
+  <h2 data-i18n="lossTitle"></h2>
+  <table class="data" id="loss-table"></table>
+</section>
+
+<section>
+  <h2 data-i18n="methTitle"></h2>
+  <p data-i18n="methP1" style="margin-bottom:8px"></p>
+  <p data-i18n="methP2" style="margin-bottom:8px"></p>
+  <p data-i18n="methP3"></p>
+</section>
+
+<footer><span data-i18n="footer"></span> <span id="v-footer-ts"></span></footer>
+
+<script>{{ chart_js | safe }}</script>
+<script>
+const STATS = {{ stats_json | safe }};
+const META  = {{ meta_json | safe }};
+
+const I18N = {
+  en: {
+    title: "Internet Connection Quality Report",
+    subtitle: "Measured performance versus the contracted service",
+    print: "Print / Save as PDF",
+    periodLinks: "Period (days):",
+    mCustomer: "Customer", mAccount: "Account / line no.", mIsp: "Provider", mPlan: "Plan",
+    mPeriod: "Reporting period", mGenerated: "Generated", mTarget: "Contracted download speed",
+    sumTitle: "Executive summary",
+    sumMedian: "median download, of {target} Mbps contracted",
+    sumAdh: "of tests reached ≥80% of the contracted speed",
+    sumOutages: "connection outages",
+    sumDowntime: "total downtime",
+    statsTitle: "Speed test statistics",
+    statsTests: "Number of speed tests in the period:",
+    rMetric: "Metric", rValue: "Value",
+    rMedian: "Median download", rMean: "Average download",
+    rP5: "5th percentile download", rP95: "95th percentile download",
+    rMin: "Minimum download", rMax: "Maximum download",
+    rUl: "Average upload", rPing: "Average latency (ping)", rPingP95: "95th percentile latency",
+    todTitle: "Time-of-day comparison (local time)",
+    todAll: "All hours", todPeak: "Peak 18:00–24:00", todOff: "Off-peak 02:00–06:00",
+    todMedian: "Median download", todMean: "Average download", todN: "Tests",
+    todNote: "Low speeds during off-peak hours indicate a line or provisioning issue rather than network congestion.",
+    chartSpeedTitle: "Download speed over time",
+    chartHourTitle: "Average download by hour of day (local time)",
+    cDownload: "Download (Mbps)", cTarget: "Contracted ({target} Mbps)", cAvg: "Average download (Mbps)",
+    outTitle: "Connection outage log",
+    oDate: "Date", oStart: "Start", oDuration: "Duration", oTargets: "Affected targets",
+    oTotal: "Total", oLongest: "longest outage",
+    oNone: "No connection outages were recorded in this period.",
+    oHostNote: "Additionally, {n} incident(s) affected only specific hostnames (DNS/site) while the connection itself was up.",
+    outDetectNote: "An outage is recorded after {thresh} consecutive failed probes (≈{detect} seconds of confirmed loss of connectivity).",
+    lossTitle: "Packet loss",
+    lTarget: "Target", lSamples: "Samples", lFails: "Failed probes", lLoss: "Loss",
+    methTitle: "Methodology",
+    methP1: "Measurements were collected automatically by NetMon, an open-source monitoring tool running continuously on a computer wired to the router. Two independent layers were used: (a) connectivity probes (ICMP) to well-known anchors — Cloudflare 1.1.1.1, Google 8.8.8.8 and the local gateway — every {ping} seconds, detecting outages and packet loss; and (b) full speed measurements using the official Ookla Speedtest CLI every {hours} hours.",
+    methP2: "To ensure fairness, speed tests were automatically postponed whenever the connection was already in use; the reported figures therefore reflect an otherwise idle line.",
+    methP3: "All raw measurement data is retained and available on request.",
+    footer: "Generated by NetMon —",
+    hUnit: "h", mUnit: "m", sUnit: "s",
+  },
+  el: {
+    title: "Αναφορά Ποιότητας Σύνδεσης Διαδικτύου",
+    subtitle: "Μετρημένη απόδοση σε σχέση με τη συμβατική υπηρεσία",
+    print: "Εκτύπωση / Αποθήκευση PDF",
+    periodLinks: "Περίοδος (ημέρες):",
+    mCustomer: "Συνδρομητής", mAccount: "Αρ. λογαριασμού / γραμμής", mIsp: "Πάροχος", mPlan: "Πρόγραμμα",
+    mPeriod: "Περίοδος αναφοράς", mGenerated: "Ημερομηνία έκδοσης", mTarget: "Συμβατική ταχύτητα λήψης",
+    sumTitle: "Συνοπτικά αποτελέσματα",
+    sumMedian: "διάμεση ταχύτητα λήψης, επί συμβατικής {target} Mbps",
+    sumAdh: "των μετρήσεων έφτασαν ≥80% της συμβατικής ταχύτητας",
+    sumOutages: "διακοπές σύνδεσης",
+    sumDowntime: "συνολικός χρόνος διακοπών",
+    statsTitle: "Στατιστικά μετρήσεων ταχύτητας",
+    statsTests: "Πλήθος μετρήσεων στην περίοδο:",
+    rMetric: "Μέγεθος", rValue: "Τιμή",
+    rMedian: "Διάμεση ταχύτητα λήψης", rMean: "Μέση ταχύτητα λήψης",
+    rP5: "5ο εκατοστημόριο λήψης", rP95: "95ο εκατοστημόριο λήψης",
+    rMin: "Ελάχιστη λήψη", rMax: "Μέγιστη λήψη",
+    rUl: "Μέση ταχύτητα αποστολής", rPing: "Μέση καθυστέρηση (ping)", rPingP95: "95ο εκατοστημόριο καθυστέρησης",
+    todTitle: "Σύγκριση ανά ώρα ημέρας (τοπική ώρα)",
+    todAll: "Όλες οι ώρες", todPeak: "Ώρες αιχμής 18:00–24:00", todOff: "Εκτός αιχμής 02:00–06:00",
+    todMedian: "Διάμεση λήψη", todMean: "Μέση λήψη", todN: "Μετρήσεις",
+    todNote: "Χαμηλές ταχύτητες εκτός ωρών αιχμής υποδεικνύουν πρόβλημα γραμμής ή παροχής και όχι συμφόρηση δικτύου.",
+    chartSpeedTitle: "Ταχύτητα λήψης στον χρόνο",
+    chartHourTitle: "Μέση ταχύτητα λήψης ανά ώρα ημέρας (τοπική ώρα)",
+    cDownload: "Λήψη (Mbps)", cTarget: "Συμβατική ({target} Mbps)", cAvg: "Μέση λήψη (Mbps)",
+    outTitle: "Καταγραφή διακοπών σύνδεσης",
+    oDate: "Ημερομηνία", oStart: "Έναρξη", oDuration: "Διάρκεια", oTargets: "Επηρεαζόμενοι προορισμοί",
+    oTotal: "Σύνολο", oLongest: "μεγαλύτερη διακοπή",
+    oNone: "Δεν καταγράφηκαν διακοπές σύνδεσης στην περίοδο.",
+    oHostNote: "Επιπλέον, {n} περιστατικό/ά αφορούσαν μόνο συγκεκριμένους προορισμούς (DNS/ιστότοπο) ενώ η σύνδεση λειτουργούσε.",
+    outDetectNote: "Μια διακοπή καταγράφεται μετά από {thresh} διαδοχικές αποτυχημένες δοκιμές (≈{detect} δευτερόλεπτα επιβεβαιωμένης απώλειας συνδεσιμότητας).",
+    lossTitle: "Απώλεια πακέτων",
+    lTarget: "Προορισμός", lSamples: "Δείγματα", lFails: "Αποτυχημένες δοκιμές", lLoss: "Απώλεια",
+    methTitle: "Μεθοδολογία",
+    methP1: "Οι μετρήσεις συλλέχθηκαν αυτόματα από το NetMon, εργαλείο παρακολούθησης ανοικτού κώδικα που εκτελείται συνεχώς σε υπολογιστή συνδεδεμένο ενσύρματα με τον δρομολογητή. Χρησιμοποιήθηκαν δύο ανεξάρτητα επίπεδα: (α) δοκιμές συνδεσιμότητας (ICMP) προς γνωστούς προορισμούς — Cloudflare 1.1.1.1, Google 8.8.8.8 και την τοπική πύλη — κάθε {ping} δευτερόλεπτα, για τον εντοπισμό διακοπών και απώλειας πακέτων, και (β) πλήρεις μετρήσεις ταχύτητας με το επίσημο Ookla Speedtest CLI κάθε {hours} ώρες.",
+    methP2: "Για τη διασφάλιση της αξιοπιστίας, οι μετρήσεις ταχύτητας αναβάλλονταν αυτόματα όποτε η σύνδεση βρισκόταν ήδη σε χρήση· τα αναφερόμενα μεγέθη αποτυπώνουν επομένως γραμμή χωρίς άλλη κίνηση.",
+    methP3: "Το σύνολο των πρωτογενών δεδομένων διατηρείται και είναι διαθέσιμο εφόσον ζητηθεί.",
+    footer: "Δημιουργήθηκε από το NetMon —",
+    hUnit: "ω", mUnit: "λ", sUnit: "δ",
+  },
+};
+
+let lang = 'el';
+let speedChart = null, hourChart = null;
+
+function t(key) {
+  let s = (I18N[lang] && I18N[lang][key]) ?? I18N.en[key] ?? key;
+  return s
+    .replace('{target}', META.target_mbps)
+    .replace('{ping}', META.ping_interval_seconds)
+    .replace('{hours}', META.interval_hours)
+    .replace('{thresh}', META.outage_threshold_failures)
+    .replace('{detect}', META.outage_threshold_failures * META.ping_interval_seconds);
+}
+const locale = () => lang === 'el' ? 'el-GR' : 'en-GB';
+const fmtN = (v, d = 1) => v != null ? v.toLocaleString(locale(), { maximumFractionDigits: d }) : '—';
+const fmtMbps = v => v != null ? `${fmtN(v)} Mbps` : '—';
+const fmtMs = v => v != null ? `${fmtN(v)} ms` : '—';
+const fmtDate = iso => new Date(iso).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' });
+const fmtTime = iso => new Date(iso).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+
+function fmtDur(sec) {
+  if (sec == null) return '—';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.round(sec % 60);
+  if (h) return `${h}${t('hUnit')} ${m}${t('mUnit')}`;
+  if (m) return `${m}${t('mUnit')} ${s}${t('sUnit')}`;
+  return `${s}${t('sUnit')}`;
+}
+
+function fillLine(el, value) {
+  if (value) { el.textContent = value; }
+  else { el.innerHTML = '<span class="fill">&nbsp;</span>'; }
+}
+
+function renderStatic() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+
+  fillLine(document.getElementById('v-customer'), META.report.customer_name);
+  fillLine(document.getElementById('v-account'), META.report.account_number);
+  fillLine(document.getElementById('v-isp'), META.report.isp_name);
+  fillLine(document.getElementById('v-plan'), META.report.plan_name);
+  document.getElementById('v-period').textContent =
+    `${fmtDate(META.period_start)} – ${fmtDate(META.generated_at)} (${META.days} ${lang === 'el' ? 'ημέρες' : 'days'})`;
+  document.getElementById('v-generated').textContent = fmtDate(META.generated_at) + ' ' + fmtTime(META.generated_at);
+  document.getElementById('v-target').innerHTML = `<b>${META.target_mbps} Mbps</b>`;
+  document.getElementById('v-footer-ts').textContent =
+    `${fmtDate(META.generated_at)} ${fmtTime(META.generated_at)}`;
+
+  const T = STATS.tests, O = STATS.outages;
+  document.getElementById('v-sum-median').textContent = fmtMbps(T.dl_median);
+  document.getElementById('v-sum-adh').textContent = T.adherence_80_pct != null ? `${fmtN(T.adherence_80_pct)}%` : '—';
+  document.getElementById('v-sum-outages').textContent = O.count;
+  document.getElementById('v-sum-downtime').textContent = fmtDur(O.total_seconds);
+  document.getElementById('v-test-count').textContent = T.count;
+}
+
+function renderTables() {
+  const T = STATS.tests;
+  const rows = [
+    ['rMedian', fmtMbps(T.dl_median)], ['rMean', fmtMbps(T.dl_mean)],
+    ['rP5', fmtMbps(T.dl_p5)], ['rP95', fmtMbps(T.dl_p95)],
+    ['rMin', fmtMbps(T.dl_min)], ['rMax', fmtMbps(T.dl_max)],
+    ['rUl', fmtMbps(T.ul_mean)], ['rPing', fmtMs(T.ping_mean)], ['rPingP95', fmtMs(T.ping_p95)],
+  ];
+  document.getElementById('stats-table').innerHTML =
+    `<tr><th>${t('rMetric')}</th><th>${t('rValue')}</th></tr>` +
+    rows.map(([k, v]) => `<tr><td>${t(k)}</td><td>${v}</td></tr>`).join('');
+
+  const bands = [['todAll', { dl_median: T.dl_median, dl_mean: T.dl_mean, n: T.count }],
+                 ['todPeak', STATS.peak], ['todOff', STATS.offpeak]];
+  document.getElementById('tod-table').innerHTML =
+    `<tr><th></th><th>${t('todMedian')}</th><th>${t('todMean')}</th><th>${t('todN')}</th></tr>` +
+    bands.map(([k, b]) =>
+      `<tr><td>${t(k)}</td><td>${fmtMbps(b.dl_median)}</td><td>${fmtMbps(b.dl_mean)}</td><td>${b.n}</td></tr>`
+    ).join('');
+
+  const O = STATS.outages;
+  const events = [...O.events].reverse(); // chronological
+  let outHtml = `<tr><th>${t('oDate')}</th><th>${t('oStart')}</th><th>${t('oDuration')}</th><th>${t('oTargets')}</th></tr>`;
+  if (!events.length) {
+    outHtml += `<tr><td colspan="4">${t('oNone')}</td></tr>`;
+  } else {
+    outHtml += events.map(e =>
+      `<tr><td>${fmtDate(e.started_at)}</td><td>${fmtTime(e.started_at)}</td>` +
+      `<td>${e.duration_seconds != null ? fmtDur(e.duration_seconds) : '—'}</td>` +
+      `<td>${e.triggers.join(', ')}</td></tr>`
+    ).join('');
+    outHtml += `<tr class="total"><td>${t('oTotal')}: ${O.count}</td><td></td>` +
+      `<td>${fmtDur(O.total_seconds)}</td><td>${fmtDur(O.longest_seconds)} (${t('oLongest')})</td></tr>`;
+  }
+  document.getElementById('outage-table').innerHTML = outHtml;
+  document.getElementById('v-host-note').textContent =
+    O.host_events.length ? t('oHostNote').replace('{n}', O.host_events.length) : '';
+
+  document.getElementById('loss-table').innerHTML =
+    `<tr><th>${t('lTarget')}</th><th>${t('lSamples')}</th><th>${t('lFails')}</th><th>${t('lLoss')}</th></tr>` +
+    STATS.loss.map(r =>
+      `<tr><td>${r.target}</td><td>${r.total.toLocaleString(locale())}</td>` +
+      `<td>${r.fails.toLocaleString(locale())}</td><td>${r.loss_pct != null ? fmtN(r.loss_pct) + '%' : '—'}</td></tr>`
+    ).join('');
+}
+
+function renderCharts() {
+  Chart.defaults.color = '#444';
+  Chart.defaults.borderColor = '#e0e0e0';
+  Chart.defaults.animation = false;
+  if (speedChart) speedChart.destroy();
+  if (hourChart) hourChart.destroy();
+
+  const pts = STATS.history.map(r => ({ x: r.t, y: r.dl }));
+  speedChart = new Chart(document.getElementById('speedChart'), {
+    type: 'line',
+    data: { datasets: [
+      { label: t('cDownload'), data: pts, borderColor: '#1f6feb',
+        backgroundColor: 'rgba(31,111,235,0.07)', borderWidth: 1.5, pointRadius: 1.5, fill: true },
+      { label: t('cTarget'),
+        data: pts.length ? [{ x: pts[0].x, y: META.target_mbps }, { x: pts[pts.length - 1].x, y: META.target_mbps }] : [],
+        borderColor: '#c0392b', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { type: 'time' }, y: { min: 0, title: { display: true, text: 'Mbps' } } },
+      plugins: { legend: { position: 'top' } },
+    },
+  });
+
+  const byHour = Object.fromEntries(STATS.hourly.map(r => [r.hour, r.dl_mean]));
+  hourChart = new Chart(document.getElementById('hourChart'), {
+    type: 'bar',
+    data: {
+      labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`),
+      datasets: [{ label: t('cAvg'),
+        data: Array.from({ length: 24 }, (_, i) => byHour[i] ?? null),
+        backgroundColor: '#1f6feb' }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { y: { min: 0, title: { display: true, text: 'Mbps' } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+function applyLang(l) {
+  lang = l;
+  document.documentElement.lang = l;
+  document.getElementById('lang-el').classList.toggle('active', l === 'el');
+  document.getElementById('lang-en').classList.toggle('active', l === 'en');
+  renderStatic();
+  renderTables();
+  renderCharts();
+}
+
+applyLang('el');
+</script>
+</body>
+</html>

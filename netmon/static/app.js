@@ -430,7 +430,7 @@ function renderHeatmap({ targets, by_target }) {
       const pct = by_target[target]?.[h];
       const bg  = lossColor(pct);
       const txt = pct != null ? (pct === 0 ? '' : `${pct}%`) : '';
-      const title = pct != null ? `${target} at ${String(h).padStart(2,'0')}:00 UTC — ${pct}% loss` : 'no data';
+      const title = pct != null ? `${target} at ${String(h).padStart(2,'0')}:00 — ${pct}% loss` : 'no data';
       html += `<td style="background:${bg}" title="${title}">${txt}</td>`;
     }
     html += '</tr>';

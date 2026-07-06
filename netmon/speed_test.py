@@ -152,105 +152,128 @@ def is_running() -> bool:
     return _run_lock.locked()
 
 
-def run(engine: Engine, conf: cfg.Config, scheduled_for=None, force: bool = False) -> Optional[int]:
+# A single silent retry cushions transient CLI failures (momentary DNS/SSL
+# glitches, Ookla config-fetch hiccups) without masking real problems.
+_RETRY_DELAY_SECONDS = 15
+
+
+def _run_speedtest_with_retry(cli_path: str) -> dict:
+    try:
+        return _run_speedtest(cli_path)
+    except RuntimeError as exc:
+        log.warning(
+            "Speed test attempt failed (%s) — retrying once in %ds...",
+            exc, _RETRY_DELAY_SECONDS,
+        )
+        time.sleep(_RETRY_DELAY_SECONDS)
+        return _run_speedtest(cli_path)
+
+
+def run(
+    engine: Engine,
+    conf: cfg.Config,
+    scheduled_for=None,
+    force: bool = False,
+    retry_count: int = 0,
+) -> tuple[str, Optional[int]]:
     """
-    Full speed-test cycle with postpone/skip/force logic.
-    Blocks until the test completes, is skipped, or is forced after
-    max_postpones consecutive postponements.
+    One speed-test decision cycle. Does NOT sleep on postponement — the
+    caller (jobs.speed_test_job) schedules a one-off retry job instead,
+    passing the incremented retry_count back in, so no scheduler thread
+    is ever parked for minutes.
 
     force=True (manual run from the dashboard) bypasses the postpone/skip
     decision entirely — bandwidth is still sampled for the event record.
 
-    Returns the new speed_tests row id, or None if no test ran
-    (skipped, errored, or another run was already in progress).
+    Returns (status, test_id): status is one of completed | forced |
+    skipped | postponed | error | busy; test_id is set only when a test
+    actually completed.
     """
     if not _run_lock.acquire(blocking=False):
         log.warning("Speed test already in progress — skipping this run.")
-        return None
+        return ("busy", None)
     try:
-        return _run_cycle(engine, conf, scheduled_for, force)
+        return _run_cycle(engine, conf, scheduled_for, force, retry_count)
     finally:
         _run_lock.release()
 
 
-def _run_cycle(engine: Engine, conf: cfg.Config, scheduled_for, force: bool) -> Optional[int]:
+def _run_cycle(
+    engine: Engine, conf: cfg.Config, scheduled_for, force: bool, retry_count: int
+) -> tuple[str, Optional[int]]:
     st_conf = conf.speed_test
-    retry_count = 0
 
-    while True:
-        log.info("Sampling bandwidth before speed test...")
-        dl_now, _ = sample_bandwidth(interval_seconds=5)
-        log.info("Current download: %.2f Mbps (target: %.0f Mbps)", dl_now, conf.target_mbps)
+    log.info("Sampling bandwidth before speed test...")
+    dl_now, _ = sample_bandwidth(interval_seconds=5)
+    log.info("Current download: %.2f Mbps (target: %.0f Mbps)", dl_now, conf.target_mbps)
 
-        decision = "proceed" if force else _check_thresholds(dl_now, conf.target_mbps, st_conf)
+    decision = "proceed" if force else _check_thresholds(dl_now, conf.target_mbps, st_conf)
 
-        if decision == "skip":
-            log.warning(
-                "Skipping speed test — current use %.2f Mbps exceeds hard threshold (%.0f%% of target).",
-                dl_now, st_conf.hard_threshold * 100,
-            )
-            _write_event(
-                engine, "skipped",
-                scheduled_for=scheduled_for,
-                current_throughput_mbps=dl_now,
-                reason=f"current use {dl_now:.2f} Mbps > hard threshold",
-                retry_count=retry_count,
-            )
-            return None
-
-        if decision == "postpone" and retry_count < st_conf.max_postpones:
-            log.info(
-                "Postponing speed test — current use %.2f Mbps exceeds soft threshold. "
-                "Retry %d/%d in %d min.",
-                dl_now, retry_count + 1, st_conf.max_postpones, st_conf.postpone_retry_minutes,
-            )
-            _write_event(
-                engine, "postponed",
-                scheduled_for=scheduled_for,
-                current_throughput_mbps=dl_now,
-                reason=f"current use {dl_now:.2f} Mbps > soft threshold",
-                retry_count=retry_count,
-            )
-            retry_count += 1
-            time.sleep(st_conf.postpone_retry_minutes * 60)
-            continue
-
-        if decision == "postpone":
-            log.warning("Forcing speed test after %d postpones — blind spot prevention.", retry_count)
-
-        # "forced": manual run, or we ran despite high bandwidth after
-        # exhausting postpones (decision == "postpone").
-        # "completed" for all normal runs, including max_postpones == 0.
-        status = "forced" if (force or decision == "postpone") else "completed"
-        reason = "manual run from dashboard" if force else None
-        log.info("Running speed test (status will be: %s)...", status)
-
-        try:
-            data = _run_speedtest(st_conf.cli_path)
-        except RuntimeError as exc:
-            log.error("Speed test failed: %s", exc)
-            _write_event(
-                engine, "error",
-                scheduled_for=scheduled_for,
-                current_throughput_mbps=dl_now,
-                reason=str(exc),
-                retry_count=retry_count,
-            )
-            return None
-
-        test_id = _write_result(engine, data, conf.target_mbps)
-        dl_result = data["download"]["bandwidth"] * 8 / 1_000_000
-        log.info(
-            "Speed test complete — %.1f Mbps down (%.0f%% of target). DB id: %d",
-            dl_result, dl_result / conf.target_mbps * 100, test_id,
+    if decision == "skip":
+        log.warning(
+            "Skipping speed test — current use %.2f Mbps exceeds hard threshold (%.0f%% of target).",
+            dl_now, st_conf.hard_threshold * 100,
         )
-
         _write_event(
-            engine, status,
+            engine, "skipped",
             scheduled_for=scheduled_for,
             current_throughput_mbps=dl_now,
-            reason=reason,
+            reason=f"current use {dl_now:.2f} Mbps > hard threshold",
             retry_count=retry_count,
-            speed_test_id=test_id,
         )
-        return test_id
+        return ("skipped", None)
+
+    if decision == "postpone" and retry_count < st_conf.max_postpones:
+        log.info(
+            "Postponing speed test — current use %.2f Mbps exceeds soft threshold. "
+            "Retry %d/%d in %d min.",
+            dl_now, retry_count + 1, st_conf.max_postpones, st_conf.postpone_retry_minutes,
+        )
+        _write_event(
+            engine, "postponed",
+            scheduled_for=scheduled_for,
+            current_throughput_mbps=dl_now,
+            reason=f"current use {dl_now:.2f} Mbps > soft threshold",
+            retry_count=retry_count,
+        )
+        return ("postponed", None)
+
+    if decision == "postpone":
+        log.warning("Forcing speed test after %d postpones — blind spot prevention.", retry_count)
+
+    # "forced": manual run, or we ran despite high bandwidth after
+    # exhausting postpones (decision == "postpone").
+    # "completed" for all normal runs, including max_postpones == 0.
+    status = "forced" if (force or decision == "postpone") else "completed"
+    reason = "manual run from dashboard" if force else None
+    log.info("Running speed test (status will be: %s)...", status)
+
+    try:
+        data = _run_speedtest_with_retry(st_conf.cli_path)
+    except RuntimeError as exc:
+        log.error("Speed test failed: %s", exc)
+        _write_event(
+            engine, "error",
+            scheduled_for=scheduled_for,
+            current_throughput_mbps=dl_now,
+            reason=str(exc),
+            retry_count=retry_count,
+        )
+        return ("error", None)
+
+    test_id = _write_result(engine, data, conf.target_mbps)
+    dl_result = data["download"]["bandwidth"] * 8 / 1_000_000
+    log.info(
+        "Speed test complete — %.1f Mbps down (%.0f%% of target). DB id: %d",
+        dl_result, dl_result / conf.target_mbps * 100, test_id,
+    )
+
+    _write_event(
+        engine, status,
+        scheduled_for=scheduled_for,
+        current_throughput_mbps=dl_now,
+        reason=reason,
+        retry_count=retry_count,
+        speed_test_id=test_id,
+    )
+    return (status, test_id)

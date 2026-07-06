@@ -5,7 +5,7 @@ to Python and aggregate there.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -222,14 +222,21 @@ def _group_outages(rows) -> list[dict]:
 
 def get_ping_heatmap(engine: Engine, days: int = 7) -> dict:
     """
-    Packet loss % grouped by UTC hour and target.
+    Packet loss % grouped by *local* hour-of-day and target — the goal is
+    spotting "it's always bad at 8pm" in the user's clock, not UTC.
     Returns targets list and a dict: {target: {hour: loss_pct}}.
     """
+    # Host's current UTC offset; DST drift within a 7-day window is
+    # negligible for an hour-of-day rollup.
+    offset_hours = int(
+        datetime.now().astimezone().utcoffset().total_seconds() // 3600
+    )
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT
-                    EXTRACT(HOUR FROM timestamp AT TIME ZONE 'UTC')::int AS hour,
+                    EXTRACT(HOUR FROM (timestamp AT TIME ZONE 'UTC')
+                            + make_interval(hours => :off))::int AS hour,
                     target,
                     COUNT(*) AS total,
                     SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) AS failures,
@@ -242,7 +249,7 @@ def get_ping_heatmap(engine: Engine, days: int = 7) -> dict:
                 GROUP BY hour, target
                 ORDER BY target, hour
             """),
-            {"days": days},
+            {"days": days, "off": offset_hours},
         ).fetchall()
 
     targets = sorted({r.target for r in rows})
@@ -299,6 +306,148 @@ def get_data_cost(engine: Engine, days: int = 30) -> dict:
         }
     # No tests at all — fall back to the ballpark from CLAUDE.md.
     return {"avg_mb_per_test": 400.0, "sample_count": 0, "estimated": True}
+
+
+def get_report_stats(engine: Engine, days: int = 30) -> dict:
+    """
+    Everything the ISP evidence report needs, in one dict. Peak/off-peak
+    and hourly figures use the host's local clock (same offset technique
+    as get_ping_heatmap).
+    """
+    offset_hours = int(
+        datetime.now().astimezone().utcoffset().total_seconds() // 3600
+    )
+    params = {"days": days, "off": offset_hours}
+
+    with engine.connect() as conn:
+        speed = conn.execute(
+            text("""
+                SELECT
+                    COUNT(*) AS n,
+                    AVG(download_mbps) AS dl_mean,
+                    PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY download_mbps) AS dl_median,
+                    PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY download_mbps) AS dl_p5,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY download_mbps) AS dl_p95,
+                    MIN(download_mbps) AS dl_min,
+                    MAX(download_mbps) AS dl_max,
+                    AVG(upload_mbps) AS ul_mean,
+                    AVG(ping_ms) AS ping_mean,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ping_ms) AS ping_p95,
+                    COUNT(*) FILTER (WHERE pct_of_target >= 80)  AS n_adh80,
+                    COUNT(*) FILTER (WHERE pct_of_target >= 100) AS n_adh100
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+            """),
+            params,
+        ).one()
+
+        bands = conn.execute(
+            text("""
+                SELECT
+                    CASE
+                        WHEN EXTRACT(HOUR FROM (timestamp AT TIME ZONE 'UTC')
+                             + make_interval(hours => :off)) BETWEEN 18 AND 23 THEN 'peak'
+                        WHEN EXTRACT(HOUR FROM (timestamp AT TIME ZONE 'UTC')
+                             + make_interval(hours => :off)) BETWEEN 2 AND 5 THEN 'offpeak'
+                        ELSE 'other'
+                    END AS band,
+                    COUNT(*) AS n,
+                    AVG(download_mbps) AS dl_mean,
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY download_mbps) AS dl_median
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                GROUP BY band
+            """),
+            params,
+        ).fetchall()
+
+        hourly = conn.execute(
+            text("""
+                SELECT
+                    EXTRACT(HOUR FROM (timestamp AT TIME ZONE 'UTC')
+                            + make_interval(hours => :off))::int AS hour,
+                    AVG(download_mbps) AS dl_mean,
+                    COUNT(*) AS n
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                GROUP BY hour ORDER BY hour
+            """),
+            params,
+        ).fetchall()
+
+        history = conn.execute(
+            text("""
+                SELECT timestamp, download_mbps
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                ORDER BY timestamp
+            """),
+            params,
+        ).fetchall()
+
+        loss = conn.execute(
+            text("""
+                SELECT target,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) AS fails
+                FROM connectivity_pings
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                GROUP BY target ORDER BY target
+            """),
+            params,
+        ).fetchall()
+
+    def _f(v):
+        return round(float(v), 1) if v is not None else None
+
+    band_map = {r.band: r for r in bands}
+
+    def _band(name):
+        r = band_map.get(name)
+        if not r:
+            return {"n": 0, "dl_mean": None, "dl_median": None}
+        return {"n": r.n, "dl_mean": _f(r.dl_mean), "dl_median": _f(r.dl_median)}
+
+    grouped = get_outages(engine, days=days)
+    conn_events = [o for o in grouped if o["type"] == "connection"]
+    host_events = [o for o in grouped if o["type"] == "host"]
+    durations = [o["duration_seconds"] or 0 for o in conn_events]
+
+    return {
+        "period_days": days,
+        "tests": {
+            "count": speed.n,
+            "dl_mean": _f(speed.dl_mean), "dl_median": _f(speed.dl_median),
+            "dl_p5": _f(speed.dl_p5), "dl_p95": _f(speed.dl_p95),
+            "dl_min": _f(speed.dl_min), "dl_max": _f(speed.dl_max),
+            "ul_mean": _f(speed.ul_mean),
+            "ping_mean": _f(speed.ping_mean), "ping_p95": _f(speed.ping_p95),
+            "adherence_80_pct": _f(100.0 * speed.n_adh80 / speed.n) if speed.n else None,
+            "adherence_100_pct": _f(100.0 * speed.n_adh100 / speed.n) if speed.n else None,
+        },
+        "peak": _band("peak"),
+        "offpeak": _band("offpeak"),
+        "hourly": [
+            {"hour": r.hour, "dl_mean": _f(r.dl_mean), "n": r.n} for r in hourly
+        ],
+        "history": [
+            {"t": r.timestamp.isoformat(), "dl": _f(r.download_mbps)} for r in history
+        ],
+        "loss": [
+            {
+                "target": r.target, "total": r.total, "fails": r.fails,
+                "loss_pct": _f(100.0 * r.fails / r.total) if r.total else None,
+            }
+            for r in loss
+        ],
+        "outages": {
+            "count": len(conn_events),
+            "total_seconds": sum(durations),
+            "longest_seconds": max(durations) if durations else 0,
+            "events": conn_events,
+            "host_events": host_events,
+        },
+    }
 
 
 def get_adherence(engine: Engine) -> dict:

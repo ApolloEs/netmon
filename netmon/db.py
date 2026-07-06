@@ -78,6 +78,13 @@ connectivity_pings = Table(
 
 # Index defined separately so it mirrors the raw SQL schema exactly.
 Index("idx_pings_timestamp", connectivity_pings.c.timestamp)
+# Serves the status query's DISTINCT ON (target) ... ORDER BY target,
+# timestamp DESC without a full sort (runs every ping cycle).
+Index(
+    "idx_pings_target_time",
+    connectivity_pings.c.target,
+    connectivity_pings.c.timestamp.desc(),
+)
 
 
 def make_engine(db_url: str) -> Engine:

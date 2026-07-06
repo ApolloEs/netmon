@@ -1,0 +1,23 @@
+# NetMon systemd unit for the Raspberry Pi target.
+# Install:  sudo cp netmon.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now netmon
+# Adjust User/WorkingDirectory/ExecStart paths to the Pi install location.
+
+[Unit]
+Description=NetMon Internet Monitor
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/netmon
+ExecStart=/home/pi/netmon/.venv/bin/python -m netmon.main
+Restart=on-failure
+RestartSec=60
+# SIGTERM triggers NetMon's clean shutdown handler; give it time.
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

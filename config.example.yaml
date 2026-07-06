@@ -23,6 +23,14 @@ dashboard:
   host: 127.0.0.1
   port: 5000
 
+# Optional: identity lines printed in the ISP evidence report header.
+# Leave out (or blank) to get fill-in-by-hand lines instead.
+# report:
+#   customer_name: ""
+#   account_number: ""
+#   isp_name: ""
+#   plan_name: ""     # e.g. "Fiber 100"
+
 logging:
   level: INFO
   file: netmon.log

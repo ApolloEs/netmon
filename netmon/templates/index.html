@@ -34,6 +34,7 @@
     </div>
     <div class="status-right">
       <span id="last-updated" class="dim">—</span>
+      <a class="btn" href="/report" target="_blank" title="Generate the ISP evidence report">📄 Report</a>
       <button id="run-test" class="btn" title="Run a speed test now (bypasses postpone logic)">▶ Run test</button>
       <button id="settings-open" class="btn btn-icon" title="Settings">⚙</button>
     </div>
@@ -93,7 +94,7 @@
 
     <!-- ── Packet Loss Heatmap ───────────────────────────────────── -->
     <section class="card">
-      <h2>Packet Loss by Hour <span class="dim">(last 7 days, UTC)</span></h2>
+      <h2>Packet Loss by Hour <span class="dim">(last 7 days, local time)</span></h2>
       <div id="heatmap-wrap" class="heatmap-wrap">
         <span class="dim">Loading…</span>
       </div>
@@ -188,8 +189,9 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <!-- Vendored locally: the dashboard must render during outages. -->
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script>const TARGET_MBPS = {{ target_mbps }};</script>
   <script src="/static/app.js"></script>
 </body>

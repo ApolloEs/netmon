@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 import logging.handlers
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Repo root — anchor for relative log paths so the file lands here even
+# when the process runs as a service with a system CWD (e.g. System32).
+_REPO_ROOT = Path(__file__).parent.parent
 
 
 def now() -> datetime:
@@ -15,7 +20,12 @@ def setup_logging(level: str, log_file: str, max_bytes: int, backup_count: int) 
     """
     Configure root logger with a rotating file handler and a stderr handler.
     Call once at process startup before any other module is imported.
+    Relative log paths are resolved against the repo root, not the CWD.
     """
+    log_path = Path(log_file)
+    if not log_path.is_absolute():
+        log_path = _REPO_ROOT / log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter(
         "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
@@ -26,7 +36,7 @@ def setup_logging(level: str, log_file: str, max_bytes: int, backup_count: int) 
 
     # Rotating file — keeps the last N × max_bytes of logs
     fh = logging.handlers.RotatingFileHandler(
-        log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+        log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
     )
     fh.setFormatter(fmt)
     root.addHandler(fh)
