@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import threading
 import time
 from typing import Optional
 
@@ -84,6 +85,8 @@ def _write_result(engine: Engine, data: dict, target_mbps: float) -> int:
                 pct_of_target=round(dl / target_mbps * 100, 1),
                 server_id=str(server.get("id", "")),
                 server_name=server.get("name", ""),
+                download_bytes=data["download"].get("bytes"),
+                upload_bytes=data["upload"].get("bytes"),
             )
             .returning(speed_tests.c.id)
         )
@@ -139,15 +142,38 @@ def _check_thresholds(dl_mbps: float, target_mbps: float, conf: cfg.SpeedTestCon
 # Public API
 # ---------------------------------------------------------------------------
 
-def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> Optional[int]:
+# Guards against concurrent runs (a manual dashboard-triggered test and a
+# scheduled one are separate APScheduler jobs, so max_instances won't help).
+_run_lock = threading.Lock()
+
+
+def is_running() -> bool:
+    """True while a speed test cycle is in progress."""
+    return _run_lock.locked()
+
+
+def run(engine: Engine, conf: cfg.Config, scheduled_for=None, force: bool = False) -> Optional[int]:
     """
     Full speed-test cycle with postpone/skip/force logic.
     Blocks until the test completes, is skipped, or is forced after
     max_postpones consecutive postponements.
 
+    force=True (manual run from the dashboard) bypasses the postpone/skip
+    decision entirely — bandwidth is still sampled for the event record.
+
     Returns the new speed_tests row id, or None if no test ran
-    (skipped or errored).
+    (skipped, errored, or another run was already in progress).
     """
+    if not _run_lock.acquire(blocking=False):
+        log.warning("Speed test already in progress — skipping this run.")
+        return None
+    try:
+        return _run_cycle(engine, conf, scheduled_for, force)
+    finally:
+        _run_lock.release()
+
+
+def _run_cycle(engine: Engine, conf: cfg.Config, scheduled_for, force: bool) -> Optional[int]:
     st_conf = conf.speed_test
     retry_count = 0
 
@@ -156,7 +182,7 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> Optional[int]:
         dl_now, _ = sample_bandwidth(interval_seconds=5)
         log.info("Current download: %.2f Mbps (target: %.0f Mbps)", dl_now, conf.target_mbps)
 
-        decision = _check_thresholds(dl_now, conf.target_mbps, st_conf)
+        decision = "proceed" if force else _check_thresholds(dl_now, conf.target_mbps, st_conf)
 
         if decision == "skip":
             log.warning(
@@ -192,9 +218,11 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> Optional[int]:
         if decision == "postpone":
             log.warning("Forcing speed test after %d postpones — blind spot prevention.", retry_count)
 
-        # "forced" only when we ran despite high bandwidth (decision == "postpone").
+        # "forced": manual run, or we ran despite high bandwidth after
+        # exhausting postpones (decision == "postpone").
         # "completed" for all normal runs, including max_postpones == 0.
-        status = "forced" if decision == "postpone" else "completed"
+        status = "forced" if (force or decision == "postpone") else "completed"
+        reason = "manual run from dashboard" if force else None
         log.info("Running speed test (status will be: %s)...", status)
 
         try:
@@ -221,6 +249,7 @@ def run(engine: Engine, conf: cfg.Config, scheduled_for=None) -> Optional[int]:
             engine, status,
             scheduled_for=scheduled_for,
             current_throughput_mbps=dl_now,
+            reason=reason,
             retry_count=retry_count,
             speed_test_id=test_id,
         )

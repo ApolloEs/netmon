@@ -34,6 +34,8 @@
     </div>
     <div class="status-right">
       <span id="last-updated" class="dim">—</span>
+      <button id="run-test" class="btn" title="Run a speed test now (bypasses postpone logic)">▶ Run test</button>
+      <button id="settings-open" class="btn btn-icon" title="Settings">⚙</button>
     </div>
   </header>
 
@@ -92,6 +94,85 @@
     </section>
 
   </main>
+
+  <!-- ── Settings Modal ────────────────────────────────────────────── -->
+  <div id="settings-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="settings-close" class="btn btn-icon" title="Close">✕</button>
+      </div>
+
+      <div id="settings-error" class="settings-error hidden"></div>
+
+      <form id="settings-form">
+        <div class="settings-group">
+          <h3>Target</h3>
+          <label>Target speed (Mbps)
+            <input type="number" id="set-target" min="1" step="1"
+                   value="{{ settings.target_mbps }}">
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Speed test</h3>
+          <label>Interval (hours)
+            <input type="number" id="set-st-interval" min="0.25" step="0.25"
+                   value="{{ settings.speed_test.interval_hours }}">
+          </label>
+          <label>Soft threshold (postpone above)
+            <input type="number" id="set-st-soft" min="0.05" max="1" step="0.05"
+                   value="{{ settings.speed_test.soft_threshold }}">
+          </label>
+          <label>Hard threshold (skip above)
+            <input type="number" id="set-st-hard" min="0.05" max="1" step="0.05"
+                   value="{{ settings.speed_test.hard_threshold }}">
+          </label>
+          <label>Postpone retry (minutes)
+            <input type="number" id="set-st-retry" min="1" step="1"
+                   value="{{ settings.speed_test.postpone_retry_minutes }}">
+          </label>
+          <label>Max postpones before forcing
+            <input type="number" id="set-st-maxpost" min="0" step="1"
+                   value="{{ settings.speed_test.max_postpones }}">
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Connectivity</h3>
+          <label>Ping interval (seconds)
+            <input type="number" id="set-conn-interval" min="10" step="5"
+                   value="{{ settings.connectivity.ping_interval_seconds }}">
+          </label>
+          <label>Failures before outage
+            <input type="number" id="set-conn-thresh" min="1" step="1"
+                   value="{{ settings.connectivity.outage_threshold_failures }}">
+          </label>
+          <label>Ping targets (one per line, <code>gateway</code> allowed)
+            <textarea id="set-conn-targets" rows="4" spellcheck="false">{{ settings.connectivity.ping_targets | join('\n') }}</textarea>
+          </label>
+        </div>
+      </form>
+
+      <div class="settings-stats">
+        <h3>Data cost <span id="stat-cost-note" class="dim small"></span></h3>
+        <div class="settings-stats-grid">
+          <div><span class="stat-label">Per speed test</span><span id="stat-cost-test" class="stat-value">—</span></div>
+          <div><span class="stat-label">Tests / day</span><span id="stat-tests-day" class="stat-value">—</span></div>
+          <div><span class="stat-label">Data / day</span><span id="stat-cost-day" class="stat-value">—</span></div>
+          <div><span class="stat-label">Outage detection</span><span id="stat-detect" class="stat-value">—</span></div>
+          <div><span class="stat-label">Ping rows / day</span><span id="stat-rows-day" class="stat-value">—</span></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span id="settings-notice" class="dim small"></span>
+        <button id="settings-cancel" class="btn">Cancel</button>
+        <button id="settings-save" class="btn btn-primary">Save</button>
+        <button id="settings-restart" class="btn btn-primary hidden">Restart monitoring</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>

@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadHeatmap(),
   ]);
   connectSSE();
+  initSettings();
+  initRunTest();
 });
 
 
@@ -49,6 +51,13 @@ function applyStatus(data) {
     setText('stat-latency', `${avg.toFixed(1)} ms`);
   } else {
     setText('stat-latency', '—');
+  }
+
+  // Keep the Run-test button in sync (covers page load mid-test and
+  // missed speed_test_done events).
+  const runBtn = document.getElementById('run-test');
+  if (typeof data.test_running === 'boolean' && data.test_running !== runBtn.disabled) {
+    setRunTestState(data.test_running);
   }
 
   // Open outage banner
@@ -212,14 +221,19 @@ function renderOutages(rows) {
     return;
   }
   el.innerHTML = rows.map(r => {
-    const dur   = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : '—';
-    const start = fmtDatetime(r.started_at);
-    const badge = r.is_open ? '<span class="outage-open-badge">OPEN</span>' : '';
+    const dur    = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : '—';
+    const start  = fmtDatetime(r.started_at);
+    const badge  = r.is_open ? '<span class="outage-open-badge">OPEN</span>' : '';
+    const isHost = r.type === 'host';
+    const title  = isHost ? r.triggers[0] : 'Connection';
+    const sub    = isHost
+      ? 'host check — site/DNS unreachable'
+      : r.triggers.join(' · ');
     return `
-      <div class="outage-item ${r.is_open ? 'open' : ''}">
+      <div class="outage-item ${r.is_open ? 'open' : ''} ${isHost ? 'outage-item--host' : ''}">
         <div>
-          <div>${start} ${badge}</div>
-          <div class="outage-trigger">${r.trigger}</div>
+          <div><strong>${title}</strong> — ${start} ${badge}</div>
+          <div class="outage-trigger">${sub}</div>
         </div>
         <div class="outage-duration">${dur}</div>
       </div>`;
@@ -282,6 +296,9 @@ function connectSSE() {
       appendSpeedPoint(data);
       loadAdherence();
       loadOutages();
+    } else if (data.type === 'speed_test_done') {
+      setRunTestState(false, data.ok ? undefined : '✕ Test failed');
+      if (!data.ok) setTimeout(() => setRunTestState(false), 4000);
     }
   };
 
@@ -289,6 +306,196 @@ function connectSSE() {
     es.close();
     setTimeout(connectSSE, 5000);
   };
+}
+
+
+// ── Manual speed test ─────────────────────────────────────────────────
+let runTestTimer = null;
+
+function initRunTest() {
+  document.getElementById('run-test').addEventListener('click', triggerSpeedTest);
+}
+
+function setRunTestState(running, label) {
+  const btn = document.getElementById('run-test');
+  btn.disabled = running;
+  btn.textContent = label ?? (running ? 'Running…' : '▶ Run test');
+  if (running) {
+    // Safety net: never leave the button stuck if events are missed.
+    clearTimeout(runTestTimer);
+    runTestTimer = setTimeout(() => setRunTestState(false), 3 * 60 * 1000);
+  } else {
+    clearTimeout(runTestTimer);
+  }
+}
+
+async function triggerSpeedTest() {
+  setRunTestState(true, 'Starting…');
+  const resp = await fetch('/api/speed-test/run', { method: 'POST' }).catch(() => null);
+  const data = resp ? await resp.json().catch(() => null) : null;
+
+  if (!resp || !resp.ok || !data || !data.ok) {
+    setRunTestState(false, (data && data.error) ? '✕ ' + data.error : '✕ Failed');
+    setTimeout(() => setRunTestState(false), 4000);
+    return;
+  }
+  setRunTestState(true);
+}
+
+
+// ── Settings modal ────────────────────────────────────────────────────
+let avgMbPerTest = null;   // from /api/settings; null until loaded
+let costEstimated = true;
+
+const $s = id => document.getElementById(id);
+
+function initSettings() {
+  $s('settings-open').addEventListener('click', openSettings);
+  $s('settings-close').addEventListener('click', closeSettings);
+  $s('settings-cancel').addEventListener('click', closeSettings);
+  $s('settings-overlay').addEventListener('click', e => {
+    if (e.target === $s('settings-overlay')) closeSettings();
+  });
+  $s('settings-save').addEventListener('click', saveSettings);
+  $s('settings-restart').addEventListener('click', restartMonitoring);
+  $s('settings-form').addEventListener('input', updateSettingsStats);
+  $s('settings-form').addEventListener('submit', e => { e.preventDefault(); saveSettings(); });
+}
+
+async function openSettings() {
+  const data = await fetchJson('/api/settings');
+  if (!data) {
+    showSettingsError('Could not load current settings.');
+  } else {
+    const s = data.settings;
+    $s('set-target').value        = s.target_mbps;
+    $s('set-st-interval').value   = s.speed_test.interval_hours;
+    $s('set-st-soft').value       = s.speed_test.soft_threshold;
+    $s('set-st-hard').value       = s.speed_test.hard_threshold;
+    $s('set-st-retry').value      = s.speed_test.postpone_retry_minutes;
+    $s('set-st-maxpost').value    = s.speed_test.max_postpones;
+    $s('set-conn-interval').value = s.connectivity.ping_interval_seconds;
+    $s('set-conn-thresh').value   = s.connectivity.outage_threshold_failures;
+    $s('set-conn-targets').value  = s.connectivity.ping_targets.join('\n');
+
+    avgMbPerTest  = data.data_cost.avg_mb_per_test;
+    costEstimated = data.data_cost.estimated;
+    $s('stat-cost-note').textContent = costEstimated
+      ? '(estimated — no byte data yet)'
+      : `(measured, avg of ${data.data_cost.sample_count} tests)`;
+    hideSettingsError();
+    updateSettingsStats();
+  }
+  $s('settings-notice').textContent = '';
+  $s('settings-restart').classList.add('hidden');
+  $s('settings-save').classList.remove('hidden');
+  $s('settings-overlay').classList.remove('hidden');
+}
+
+function closeSettings() {
+  $s('settings-overlay').classList.add('hidden');
+}
+
+function updateSettingsStats() {
+  const intervalH  = parseFloat($s('set-st-interval').value);
+  const pingSec    = parseFloat($s('set-conn-interval').value);
+  const threshold  = parseInt($s('set-conn-thresh').value, 10);
+  const nTargets   = collectTargets().length;
+
+  if (avgMbPerTest != null) {
+    $s('stat-cost-test').textContent = `${Math.round(avgMbPerTest)} MB`;
+    if (intervalH > 0) {
+      const perDay = avgMbPerTest * (24 / intervalH);
+      $s('stat-tests-day').textContent = (24 / intervalH).toFixed(1);
+      $s('stat-cost-day').textContent  = perDay >= 1000
+        ? `${(perDay / 1000).toFixed(2)} GB`
+        : `${Math.round(perDay)} MB`;
+    }
+  }
+  if (pingSec > 0 && threshold > 0) {
+    $s('stat-detect').textContent = fmtDuration(Math.round(pingSec * threshold));
+  }
+  if (pingSec > 0 && nTargets > 0) {
+    $s('stat-rows-day').textContent = Math.round((86400 / pingSec) * nTargets).toLocaleString();
+  }
+}
+
+function collectTargets() {
+  return $s('set-conn-targets').value
+    .split('\n').map(t => t.trim()).filter(Boolean);
+}
+
+function collectSettings() {
+  return {
+    target_mbps: parseFloat($s('set-target').value),
+    speed_test: {
+      interval_hours:         parseFloat($s('set-st-interval').value),
+      soft_threshold:         parseFloat($s('set-st-soft').value),
+      hard_threshold:         parseFloat($s('set-st-hard').value),
+      postpone_retry_minutes: parseInt($s('set-st-retry').value, 10),
+      max_postpones:          parseInt($s('set-st-maxpost').value, 10),
+    },
+    connectivity: {
+      ping_interval_seconds:     parseInt($s('set-conn-interval').value, 10),
+      outage_threshold_failures: parseInt($s('set-conn-thresh').value, 10),
+      ping_targets:              collectTargets(),
+    },
+  };
+}
+
+async function saveSettings() {
+  hideSettingsError();
+  const body = collectSettings();
+  const vals = [
+    body.target_mbps,
+    ...Object.values(body.speed_test),
+    body.connectivity.ping_interval_seconds,
+    body.connectivity.outage_threshold_failures,
+  ];
+  if (vals.some(v => v == null || Number.isNaN(v))) {
+    showSettingsError('All fields must be filled with valid numbers.');
+    return;
+  }
+
+  const resp = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  const data = resp ? await resp.json().catch(() => null) : null;
+
+  if (!resp || !resp.ok || !data || !data.ok) {
+    showSettingsError((data && data.error) || 'Save failed.');
+    return;
+  }
+  $s('settings-notice').textContent = 'Saved — restart monitoring to apply.';
+  $s('settings-save').classList.add('hidden');
+  $s('settings-restart').classList.remove('hidden');
+}
+
+async function restartMonitoring() {
+  hideSettingsError();
+  $s('settings-notice').textContent = 'Restarting…';
+  const resp = await fetch('/api/restart', { method: 'POST' }).catch(() => null);
+  const data = resp ? await resp.json().catch(() => null) : null;
+
+  if (!resp || !resp.ok || !data || !data.ok) {
+    showSettingsError((data && data.error) || 'Restart failed.');
+    $s('settings-notice').textContent = 'Saved (not yet applied).';
+    return;
+  }
+  $s('settings-notice').textContent = 'Monitoring restarted with new settings.';
+  setTimeout(() => location.reload(), 800);
+}
+
+function showSettingsError(msg) {
+  const el = $s('settings-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function hideSettingsError() {
+  $s('settings-error').classList.add('hidden');
 }
 
 

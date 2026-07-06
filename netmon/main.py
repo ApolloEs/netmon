@@ -20,33 +20,12 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from netmon import cleanup, config as cfg, db, events, outage_detector, pinger, queries, speed_test
+from netmon import cleanup, config as cfg, db, jobs, outage_detector, pinger
 from netmon.dashboard import create_app
+from netmon.runtime import Runtime
 from netmon.utils import now, setup_logging
 
 log = logging.getLogger(__name__)
-
-
-# ── Job wrappers (publish SSE events after each run) ─────────────────
-
-def _pinger_job(engine, conf, targets):
-    pinger.run_once(engine, conf, targets)
-    try:
-        events.publish("status_update", queries.get_status(engine))
-    except Exception as exc:
-        log.warning("Failed to publish ping event: %s", exc)
-
-
-def _speed_test_job(engine, conf):
-    test_id = speed_test.run(engine, conf, scheduled_for=now())
-    try:
-        if test_id is not None:
-            history = queries.get_speed_history(engine, days=30)
-            if history:
-                events.publish("speed_update", history[-1])
-        events.publish("status_update", queries.get_status(engine))
-    except Exception as exc:
-        log.warning("Failed to publish speed event: %s", exc)
 
 
 # ── Scheduler setup ───────────────────────────────────────────────────
@@ -109,6 +88,7 @@ def main() -> None:
     log.info("NetMon starting up.")
 
     engine = db.make_engine(conf.database.url)
+    rt = Runtime(engine, conf)
 
     log.info("Running startup outage reconcile...")
     outage_detector.reconcile(engine, conf)
@@ -119,9 +99,10 @@ def main() -> None:
         sys.exit(1)
 
     pinger.restore_state(engine, targets)
+    rt.targets = targets
 
     # ── Dashboard thread ─────────────────────────────────────────────
-    flask_app = create_app(engine, conf)
+    flask_app = create_app(rt)
     dash_thread = threading.Thread(
         target=lambda: flask_app.run(
             host=conf.dashboard.host,
@@ -142,7 +123,7 @@ def main() -> None:
     _register_signal_handlers(scheduler)
 
     scheduler.add_job(
-        lambda: _pinger_job(engine, conf, targets),
+        lambda: jobs.pinger_job(rt),
         trigger="interval",
         seconds=conf.connectivity.ping_interval_seconds,
         id="pinger",
@@ -151,7 +132,7 @@ def main() -> None:
     )
 
     scheduler.add_job(
-        lambda: _speed_test_job(engine, conf),
+        lambda: jobs.speed_test_job(rt),
         trigger="interval",
         hours=conf.speed_test.interval_hours,
         id="speed_test",
@@ -160,7 +141,7 @@ def main() -> None:
     )
 
     scheduler.add_job(
-        lambda: outage_detector.reconcile(engine, conf),
+        lambda: outage_detector.reconcile(rt.engine, rt.conf),
         trigger="interval",
         minutes=10,
         id="reconciler",
@@ -168,7 +149,7 @@ def main() -> None:
     )
 
     scheduler.add_job(
-        lambda: cleanup.prune_pings(engine),
+        lambda: cleanup.prune_pings(rt.engine),
         trigger="interval",
         hours=24,
         id="cleanup",
@@ -177,6 +158,8 @@ def main() -> None:
         # than the 24h interval, retention would otherwise never run.
         next_run_time=now() + timedelta(minutes=5),
     )
+
+    rt.scheduler = scheduler
 
     log.info(
         "Scheduler started — pinger every %ds, speed test every %.1fh, "

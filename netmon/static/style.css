@@ -151,6 +151,11 @@ main {
 
 .outage-item.open { border-color: var(--offline); }
 
+/* Hostname-only outage: the connection was fine, a specific site/DNS
+   was not — visually secondary to real connection events. */
+.outage-item--host { border-left: 3px solid #a371f7; }
+.outage-item--host strong { color: #a371f7; font-weight: 600; }
+
 .outage-trigger { color: var(--dim); font-size: 12px; }
 .outage-duration { font-weight: 600; font-variant-numeric: tabular-nums; }
 .outage-open-badge {
@@ -194,6 +199,161 @@ main {
   color: var(--dim);
   white-space: nowrap;
 }
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--dim); }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.btn-primary:hover { filter: brightness(1.15); border-color: var(--accent); }
+
+.btn-icon {
+  padding: 4px 9px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ── Settings modal ─────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  z-index: 200;
+  overflow-y: auto;
+}
+
+/* Must out-rank .modal-overlay's display:flex, which is declared after
+   the .hidden utility in this file. */
+.modal-overlay.hidden { display: none; }
+
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 560px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-header h2 { font-size: 16px; font-weight: 600; }
+
+.settings-error {
+  background: #3a0000;
+  border: 1px solid var(--offline);
+  border-radius: 6px;
+  color: #ff8080;
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: pre-line;
+}
+
+#settings-form { display: flex; flex-direction: column; gap: 16px; }
+
+.settings-group h3 {
+  font-size: 12px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 8px;
+}
+
+.settings-group label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.settings-group input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 5px 8px;
+  width: 110px;
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-group textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  width: 220px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.settings-group input:focus, .settings-group textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-stats h3 {
+  font-size: 12px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 8px;
+}
+
+.settings-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+  gap: 8px;
+}
+
+.settings-stats-grid > div {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.modal-footer span { margin-right: auto; }
 
 /* ── Utilities ──────────────────────────────────────────────────── */
 .dim   { color: var(--dim); }

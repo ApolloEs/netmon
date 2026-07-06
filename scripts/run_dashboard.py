@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from netmon import config as cfg
 from netmon import db
 from netmon.dashboard import create_app
+from netmon.runtime import Runtime
 
 
 def main() -> None:
@@ -30,7 +31,7 @@ def main() -> None:
     conf = cfg.load(args.config) if args.config else cfg.load()
     engine = db.make_engine(conf.database.url)
 
-    app = create_app(engine, conf)
+    app = create_app(Runtime(engine, conf))  # scheduler stays None: read-only mode
     print(f"Dashboard (read-only) → http://{conf.dashboard.host}:{conf.dashboard.port}")
     app.run(
         host=conf.dashboard.host,

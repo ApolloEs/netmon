@@ -5,10 +5,13 @@ to Python and aggregate there.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+from netmon.pinger import _IPV4_RE
 
 
 def _row_to_dict(row) -> dict:
@@ -117,29 +120,104 @@ def get_test_events(engine: Engine, days: int = 30) -> list[dict]:
     return result
 
 
+# Anchor outages (IP targets) within this gap of each other merge into one
+# connection event; targets rarely fail at the exact same ping cycle.
+_MERGE_GAP = timedelta(seconds=60)
+# A host (hostname target) outage folds into a connection event when its
+# interval sits within the event, allowing this much detection jitter
+# (~one detection window: threshold × ping interval).
+_FOLD_TOLERANCE = timedelta(seconds=120)
+
+
 def get_outages(engine: Engine, days: int = 30) -> list[dict]:
-    """Outage records for the timeline view."""
+    """
+    Outage events for the timeline view, grouped for display:
+
+    - IP-anchor outages (gateway, 1.1.1.1, …) that overlap are merged into
+      a single "connection" event — one WAN drop, one row.
+    - Hostname outages (google.com, …) contained in a connection event fold
+      into it; otherwise they stand alone as "host" events (site/DNS down
+      while the connection itself was fine).
+
+    DB rows stay per-target; grouping is read-time only. Interval-merging
+    is done in Python — the one exception to the aggregate-in-SQL rule.
+    """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT
-                    id,
                     started_at,
                     COALESCE(ended_at, NOW()) AS ended_at,
-                    duration_seconds,
                     trigger,
                     ended_at IS NULL AS is_open
                 FROM outages
                 WHERE started_at >= NOW() - (:days * INTERVAL '1 day')
-                ORDER BY started_at DESC
+                ORDER BY started_at
             """),
             {"days": days},
         ).fetchall()
-    result = [_row_to_dict(r) for r in rows]
-    for r in result:
-        r["started_at"] = r["started_at"].isoformat()
-        r["ended_at"] = r["ended_at"].isoformat()
-    return result
+    return _group_outages(rows)
+
+
+def _group_outages(rows) -> list[dict]:
+    """Pure grouping step; rows need started_at, ended_at, trigger, is_open."""
+    anchors = [r for r in rows if _IPV4_RE.match(r.trigger or "")]
+    hosts = [r for r in rows if not _IPV4_RE.match(r.trigger or "")]
+
+    # 1. Merge overlapping/adjacent anchor outages into connection events.
+    clusters: list[dict] = []
+    for r in anchors:  # already sorted by started_at
+        if clusters and r.started_at <= clusters[-1]["end"] + _MERGE_GAP:
+            c = clusters[-1]
+            c["end"] = max(c["end"], r.ended_at)
+            c["triggers"].add(r.trigger)
+            c["is_open"] = c["is_open"] or r.is_open
+        else:
+            clusters.append({
+                "type": "connection",
+                "start": r.started_at,
+                "end": r.ended_at,
+                "triggers": {r.trigger},
+                "is_open": r.is_open,
+            })
+
+    # 2. Fold contained host outages into their connection event; the rest
+    #    stand alone.
+    for r in hosts:
+        folded = False
+        for c in clusters:
+            if (r.started_at >= c["start"] - _FOLD_TOLERANCE
+                    and r.ended_at <= c["end"] + _FOLD_TOLERANCE):
+                c["start"] = min(c["start"], r.started_at)
+                c["end"] = max(c["end"], r.ended_at)
+                c["triggers"].add(r.trigger)
+                c["is_open"] = c["is_open"] or r.is_open
+                folded = True
+                break
+        if not folded:
+            clusters.append({
+                "type": "host",
+                "start": r.started_at,
+                "end": r.ended_at,
+                "triggers": {r.trigger},
+                "is_open": r.is_open,
+            })
+
+    clusters.sort(key=lambda c: c["start"], reverse=True)
+    return [
+        {
+            "type": c["type"],
+            "started_at": c["start"].isoformat(),
+            "ended_at": c["end"].isoformat(),
+            "duration_seconds": (
+                None if c["is_open"]
+                else int((c["end"] - c["start"]).total_seconds())
+            ),
+            "triggers": sorted(c["triggers"]),
+            "is_open": c["is_open"],
+        }
+        for c in clusters
+    ]
 
 
 def get_ping_heatmap(engine: Engine, days: int = 7) -> dict:
@@ -173,6 +251,54 @@ def get_ping_heatmap(engine: Engine, days: int = 7) -> dict:
         data[r.target][r.hour] = float(r.loss_pct) if r.loss_pct is not None else 0.0
 
     return {"targets": targets, "by_target": data}
+
+
+def get_data_cost(engine: Engine, days: int = 30) -> dict:
+    """
+    Average data cost per speed test (MB), preferring real byte counts.
+    Falls back to an estimate from recorded speeds (~15s per direction)
+    for databases with no byte data yet; flags which one it is.
+    """
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT
+                    AVG(download_bytes + upload_bytes) / 1e6 AS avg_mb,
+                    COUNT(*) AS n
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                  AND download_bytes IS NOT NULL
+                  AND upload_bytes IS NOT NULL
+            """),
+            {"days": days},
+        ).fetchone()
+
+        if row and row.n > 0:
+            return {
+                "avg_mb_per_test": round(float(row.avg_mb), 1),
+                "sample_count": row.n,
+                "estimated": False,
+            }
+
+        est = conn.execute(
+            text("""
+                SELECT
+                    (AVG(download_mbps) + AVG(upload_mbps)) / 8 * 15 AS avg_mb,
+                    COUNT(*) AS n
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+            """),
+            {"days": days},
+        ).fetchone()
+
+    if est and est.n > 0 and est.avg_mb is not None:
+        return {
+            "avg_mb_per_test": round(float(est.avg_mb), 1),
+            "sample_count": est.n,
+            "estimated": True,
+        }
+    # No tests at all — fall back to the ballpark from CLAUDE.md.
+    return {"avg_mb_per_test": 400.0, "sample_count": 0, "estimated": True}
 
 
 def get_adherence(engine: Engine) -> dict:

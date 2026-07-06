@@ -89,10 +89,8 @@ def _validate(conf: Config) -> None:
         raise ValueError("Invalid config:\n  - " + "\n  - ".join(errors))
 
 
-def load(path: Path = CONFIG_PATH) -> Config:
-    with open(path) as f:
-        raw = yaml.safe_load(f)
-
+def _from_raw(raw: dict) -> Config:
+    """Build and validate a Config from a parsed YAML dict."""
     st = raw["speed_test"]
     conn = raw["connectivity"]
 
@@ -129,4 +127,61 @@ def load(path: Path = CONFIG_PATH) -> Config:
         raise KeyError(f"Missing required config key: {exc}") from exc
 
     _validate(conf)
+    return conf
+
+
+def load(path: Path = CONFIG_PATH) -> Config:
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+    return _from_raw(raw)
+
+
+# Keys editable from the dashboard settings modal. Everything else
+# (database, dashboard, logging, cli_path) stays file-only.
+_EDITABLE_SECTIONS = {
+    "speed_test": {
+        "interval_hours", "soft_threshold", "hard_threshold",
+        "postpone_retry_minutes", "max_postpones",
+    },
+    "connectivity": {
+        "ping_interval_seconds", "outage_threshold_failures", "ping_targets",
+    },
+}
+
+
+def save_settings(updates: dict, path: Path = CONFIG_PATH) -> Config:
+    """
+    Apply whitelisted settings to config.yaml, preserving comments.
+    Validates the resulting config before writing; raises ValueError
+    (or KeyError) without touching the file if it is invalid.
+    Returns the new Config.
+    """
+    from ruamel.yaml import YAML  # only the settings endpoint needs it
+
+    yaml_rt = YAML()
+    yaml_rt.preserve_quotes = True
+    with open(path) as f:
+        doc = yaml_rt.load(f)
+
+    # Only assign keys whose value actually changed: replacing a node in the
+    # ruamel tree can drop comments attached to it (notably list items), so
+    # untouched keys must stay untouched.
+    if "target_mbps" in updates and doc["target_mbps"] != updates["target_mbps"]:
+        doc["target_mbps"] = updates["target_mbps"]
+    for section, allowed in _EDITABLE_SECTIONS.items():
+        for key, value in (updates.get(section) or {}).items():
+            if key not in allowed:
+                continue
+            current = doc[section].get(key)
+            if isinstance(value, list) and current is not None:
+                changed = list(current) != list(value)
+            else:
+                changed = current != value
+            if changed:
+                doc[section][key] = value
+
+    conf = _from_raw(doc)  # raises on invalid values
+
+    with open(path, "w") as f:
+        yaml_rt.dump(doc, f)
     return conf

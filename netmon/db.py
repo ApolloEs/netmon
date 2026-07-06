@@ -37,6 +37,10 @@ speed_tests = Table(
     Column("pct_of_target", Float),
     Column("server_id", Text),
     Column("server_name", Text),
+    # Actual bytes transferred, as reported by the Ookla CLI. Nullable:
+    # rows recorded before these columns existed have no byte data.
+    Column("download_bytes", BigInteger),
+    Column("upload_bytes", BigInteger),
 )
 
 test_events = Table(
