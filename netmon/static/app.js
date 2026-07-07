@@ -1,9 +1,61 @@
 'use strict';
 
-// ── Chart.js global defaults ────────────────────────────────────────
-Chart.defaults.color = '#8b949e';
-Chart.defaults.borderColor = '#30363d';
-Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+// ── Theme ─────────────────────────────────────────────────────────────
+// CSS handles layout colors via variables; everything drawn from JS
+// (charts, heatmap/calendar palettes, canvas bands) reads this palette.
+const THEMES = {
+  dark: {
+    chartText: '#8b949e', grid: '#21262d', gridMajor: '#3d444d',
+    dl: '#58a6ff', dlFill: 'rgba(88,166,255,0.08)', ul: '#3fb950', median: '#e3b341',
+    p95Fill: 'rgba(210,153,34,0.16)',
+    outageBand: 'rgba(248,81,73,0.16)', degradedBand: 'rgba(210,153,34,0.14)',
+    noData: 'rgba(139,148,158,0.07)', noDataText: 'rgba(139,148,158,0.4)',
+    loss: { nodata: '#1e2432', clean: '#0d2b0d', trace: '#2b2200', mid: '#3a1a00', bad: '#3a0a00', severe: '#3a0000' },
+    cal: ['#1f6f38', '#5a7d2a', '#8a6d1f', '#8a4a1f', '#8a2525'], calEmpty: '#1e2432',
+  },
+  light: {
+    chartText: '#57606a', grid: '#e8ecef', gridMajor: '#c8d1d9',
+    dl: '#0969da', dlFill: 'rgba(9,105,218,0.07)', ul: '#1a7f37', median: '#9a6700',
+    p95Fill: 'rgba(154,103,0,0.15)',
+    outageBand: 'rgba(207,34,46,0.10)', degradedBand: 'rgba(154,103,0,0.12)',
+    noData: 'rgba(110,118,129,0.08)', noDataText: 'rgba(110,118,129,0.55)',
+    loss: { nodata: '#eff2f5', clean: '#dafbe1', trace: '#fff8c5', mid: '#ffd8b5', bad: '#ffb8a5', severe: '#ff9492' },
+    cal: ['#2da44e', '#96bf4b', '#d4a72c', '#e16f24', '#cf222e'], calEmpty: '#eaeef2',
+  },
+};
+
+function theme() {
+  return THEMES[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+}
+
+function applyChartDefaults() {
+  Chart.defaults.color = theme().chartText;
+  Chart.defaults.borderColor = theme().grid;
+  Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+}
+applyChartDefaults();
+
+function initTheme() {
+  const btn = document.getElementById('theme-toggle');
+  const setIcon = () => {
+    // Show the theme you'd switch TO.
+    btn.textContent = document.documentElement.dataset.theme === 'light' ? '🌙' : '☀';
+  };
+  setIcon();
+  btn.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('netmon.theme', next);
+    setIcon();
+    applyChartDefaults();
+    // Rebuild everything drawn with JS-side colors.
+    loadSpeedHistory();
+    loadLatency();
+    loadOutages();
+    loadDaily();
+    loadHeatmap();
+  });
+}
 
 let speedChart = null;
 let speedChartHovered = false;
@@ -52,10 +104,10 @@ const noDataPlugin = {
       if (x1 < area.left || x0 > area.right) continue;
       x0 = Math.max(x0, area.left);
       x1 = Math.min(x1, area.right);
-      ctx.fillStyle = 'rgba(139, 148, 158, 0.07)';
+      ctx.fillStyle = theme().noData;
       ctx.fillRect(x0, area.top, x1 - x0, area.height);
       if (x1 - x0 > 90) {
-        ctx.fillStyle = 'rgba(139, 148, 158, 0.4)';
+        ctx.fillStyle = theme().noDataText;
         ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -84,7 +136,7 @@ const outageBandsPlugin = {
       if (x1 < area.left || x0 > area.right) continue;
       x0 = Math.max(x0, area.left);
       x1 = Math.min(x1, area.right);
-      ctx.fillStyle = b.color || 'rgba(248, 81, 73, 0.16)';
+      ctx.fillStyle = b.kind === 'deg' ? theme().degradedBand : theme().outageBand;
       ctx.fillRect(x0, area.top, x1 - x0, area.height);
     }
     ctx.restore();
@@ -106,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSettings();
   initRunTest();
   initChartRanges();
+  initTheme();
 });
 
 
@@ -269,16 +322,21 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
   }));
 
   const canvas = document.getElementById('speedChart');
-  // pointerenter/leave cover both mouse hover and touch contact.
-  canvas.addEventListener('pointerenter', () => {
-    speedChartHovered = true;
-    if (speedChart) speedChart.update('none');
-  });
-  canvas.addEventListener('pointerleave', () => {
-    speedChartHovered = false;
-    if (speedChart) speedChart.update('none');
-  });
+  if (!canvas.dataset.hoverBound) {
+    // pointerenter/leave cover both mouse hover and touch contact.
+    canvas.addEventListener('pointerenter', () => {
+      speedChartHovered = true;
+      if (speedChart) speedChart.update('none');
+    });
+    canvas.addEventListener('pointerleave', () => {
+      speedChartHovered = false;
+      if (speedChart) speedChart.update('none');
+    });
+    canvas.dataset.hoverBound = '1';
+  }
 
+  const T = theme();
+  if (speedChart) speedChart.destroy();
   const ctx = canvas.getContext('2d');
   speedChart = new Chart(ctx, {
     type: 'line',
@@ -288,8 +346,8 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
         {
           label: 'Download',
           data: dlData,
-          borderColor: '#58a6ff',
-          backgroundColor: 'rgba(88,166,255,0.08)',
+          borderColor: T.dl,
+          backgroundColor: T.dlFill,
           borderWidth: 2,
           // All points materialize while the cursor is over the chart
           // (or a finger is on it) — clean lines otherwise.
@@ -302,7 +360,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
         {
           label: 'Upload',
           data: ulData,
-          borderColor: '#3fb950',
+          borderColor: T.ul,
           backgroundColor: 'transparent',
           borderWidth: 1.5,
           pointRadius: () => speedChartHovered ? 2 : 0,
@@ -324,7 +382,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
         {
           label: '7d median',
           data: medianData,
-          borderColor: '#e3b341',
+          borderColor: T.median,
           borderWidth: 2,
           borderDash: [8, 4],
           pointRadius: 0,
@@ -352,13 +410,13 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           },
           grid: {
             // Brighter gridline at midnights so days read at a glance.
-            color: c => c.tick && c.tick.major ? '#3d444d' : '#21262d',
+            color: c => c.tick && c.tick.major ? theme().gridMajor : theme().grid,
           },
         },
         y: {
           title: { display: true, text: 'Mbps' },
           min: 0,
-          grid: { color: '#21262d' },
+          grid: { color: c => theme().grid },
         },
       },
       plugins: {
@@ -428,17 +486,17 @@ async function loadOutages() {
 }
 
 function updateOutageBands(rows, degraded) {
-  const toBand = (r, color) => ({
+  const toBand = (r, kind) => ({
     start: new Date(r.started_at).getTime(),
     end: new Date(r.ended_at).getTime(),  // NOW-coalesced while open
-    color,
+    kind,
   });
   // Amber (degraded) first, red (outage) second: draw order makes red
-  // win where they overlap.
+  // win where they overlap. Colors resolve per-draw so theme switches
+  // apply without recomputing bands.
   outageBands = [
-    ...(degraded || []).map(r => toBand(r, 'rgba(210, 153, 34, 0.14)')),
-    ...rows.filter(r => r.type === 'connection')
-           .map(r => toBand(r, 'rgba(248, 81, 73, 0.16)')),
+    ...(degraded || []).map(r => toBand(r, 'deg')),
+    ...rows.filter(r => r.type === 'connection').map(r => toBand(r, 'out')),
   ];
   if (speedChart) speedChart.update('none');
 }
@@ -456,19 +514,32 @@ function initChartRanges() {
 }
 
 function applyChartRange(range) {
-  if (!speedChart) return;
   const spans = { day: 864e5, week: 7 * 864e5, month: 30 * 864e5 };
-  if (spans[range]) {
-    // Fixed windows so Day ⊂ Week ⊂ Month always holds; empty space on
-    // the left simply means no data recorded that far back yet.
-    speedChart.options.scales.x.min = Date.now() - spans[range];
-    speedChart.options.scales.x.max = Date.now();
-  } else {
-    // All: auto-fit to whatever data is loaded (page-load default).
-    speedChart.options.scales.x.min = undefined;
-    speedChart.options.scales.x.max = undefined;
+  if (speedChart) {
+    if (spans[range]) {
+      // Fixed windows so Day ⊂ Week ⊂ Month always holds; empty space on
+      // the left simply means no data recorded that far back yet.
+      speedChart.options.scales.x.min = Date.now() - spans[range];
+      speedChart.options.scales.x.max = Date.now();
+    } else {
+      // All: auto-fit to whatever data is loaded (page-load default).
+      speedChart.options.scales.x.min = undefined;
+      speedChart.options.scales.x.max = undefined;
+    }
+    speedChart.update();
   }
-  speedChart.update();
+  if (latencyChart) {
+    // Latency data only spans the 7-day ping retention — clamp there.
+    const span = Math.min(spans[range] ?? 7 * 864e5, 7 * 864e5);
+    if (spans[range]) {
+      latencyChart.options.scales.x.min = Date.now() - span;
+      latencyChart.options.scales.x.max = Date.now();
+    } else {
+      latencyChart.options.scales.x.min = undefined;
+      latencyChart.options.scales.x.max = undefined;
+    }
+    latencyChart.update();
+  }
 }
 
 function renderOutages(rows, degraded) {
@@ -522,6 +593,16 @@ async function loadLatency() {
   buildLatencyChart(rows);
 }
 
+// Centered 3-point moving average that respects null gap-breaks.
+function smooth3(points) {
+  return points.map((p, i) => {
+    if (p.y == null) return p;
+    const prev = points[i - 1], next = points[i + 1];
+    const vals = [prev && prev.y, p.y, next && next.y].filter(v => v != null);
+    return { x: p.x, y: Math.round(vals.reduce((s, v) => s + v, 0) / vals.length * 10) / 10 };
+  });
+}
+
 function buildLatencyChart(rows) {
   // Break the line where buckets are missing (monitor was off).
   const avg = [], p95 = [];
@@ -535,26 +616,34 @@ function buildLatencyChart(rows) {
     p95.push({ x: rows[i].t, y: rows[i].p95_ms });
   }
 
+  // Cap the axis at the 99th percentile of p95 so a handful of mega-spikes
+  // don't squash the everyday band; clipped spikes still tooltip truthfully.
+  const p95vals = rows.map(r => r.p95_ms).sort((a, b) => a - b);
+  const p99 = p95vals[Math.floor(p95vals.length * 0.99)] ?? 50;
+  const yMax = Math.max(50, Math.ceil(p99 / 25) * 25);
+
+  const T = theme();
   if (latencyChart) latencyChart.destroy();
   latencyChart = new Chart(document.getElementById('latencyChart').getContext('2d'), {
     type: 'line',
+    plugins: [outageBandsPlugin],  // outage/degraded context behind latency
     data: {
       datasets: [
         {
-          label: 'p95',
-          data: p95,
-          borderColor: 'rgba(210,153,34,0.55)',
-          backgroundColor: 'rgba(210,153,34,0.08)',
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: true,
-        },
-        {
           label: 'Average',
-          data: avg,
-          borderColor: '#58a6ff',
+          data: smooth3(avg),
+          borderColor: T.dl,
           borderWidth: 1.5,
           pointRadius: 0,
+        },
+        {
+          // Envelope up to p95 — no line of its own, just a soft band.
+          label: 'p95',
+          data: p95,
+          borderWidth: 0,
+          backgroundColor: T.p95Fill,
+          pointRadius: 0,
+          fill: '-1',
         },
       ],
     },
@@ -570,12 +659,13 @@ function buildLatencyChart(rows) {
             major: { enabled: true },
             font: c => c.tick && c.tick.major ? { weight: 'bold' } : {},
           },
-          grid: { color: c => c.tick && c.tick.major ? '#3d444d' : '#21262d' },
+          grid: { color: c => c.tick && c.tick.major ? theme().gridMajor : theme().grid },
         },
         y: {
           min: 0,
+          max: yMax,
           title: { display: true, text: 'ms' },
-          grid: { color: '#21262d' },
+          grid: { color: c => theme().grid },
         },
       },
       plugins: {
@@ -583,6 +673,53 @@ function buildLatencyChart(rows) {
         tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y} ms` } },
       },
     },
+  });
+}
+
+
+// ── Custom tooltip (theme-matching replacement for title="") ─────────
+let tooltipEl = null;
+
+function ensureTooltip() {
+  if (!tooltipEl) {
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'nm-tooltip hidden';
+    document.body.appendChild(tooltipEl);
+  }
+  return tooltipEl;
+}
+
+function moveTooltip(e) {
+  const tip = ensureTooltip();
+  const pad = 12;
+  const rect = tip.getBoundingClientRect();
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  if (x + rect.width > window.innerWidth - 8) x = e.clientX - rect.width - pad;
+  if (y + rect.height > window.innerHeight - 8) y = e.clientY - rect.height - pad;
+  tip.style.left = `${Math.max(4, x)}px`;
+  tip.style.top = `${Math.max(4, y)}px`;
+}
+
+// Delegated hover tooltip: elements matching `selector` inside `container`
+// get a themed tooltip with HTML from `htmlGetter(el)` (null = no tip).
+function attachTooltip(container, selector, htmlGetter) {
+  container.addEventListener('pointerover', e => {
+    const el = e.target.closest(selector);
+    if (!el || !container.contains(el)) return;
+    const html = htmlGetter(el);
+    if (!html) return;
+    const tip = ensureTooltip();
+    tip.innerHTML = html;
+    tip.classList.remove('hidden');
+    moveTooltip(e);
+  });
+  container.addEventListener('pointermove', e => {
+    if (tooltipEl && !tooltipEl.classList.contains('hidden')) moveTooltip(e);
+  });
+  container.addEventListener('pointerout', e => {
+    const el = e.target.closest(selector);
+    if (el && tooltipEl) tooltipEl.classList.add('hidden');
   });
 }
 
@@ -595,7 +732,7 @@ async function loadDaily() {
 }
 
 function qualityColor(d) {
-  if (!d || (!d.tests && !d.outage_seconds)) return '#1e2432';  // no data
+  if (!d || (!d.tests && !d.outage_seconds && !d.degraded_seconds)) return theme().calEmpty;
   let level;  // 0 best … 4 worst
   const adh = d.adherence_pct;
   if (adh == null) level = 2;
@@ -607,38 +744,82 @@ function qualityColor(d) {
   if (d.outage_seconds > 1800) level = Math.min(4, level + 2);
   else if (d.outage_seconds > 300) level = Math.min(4, level + 1);
   if ((d.degraded_seconds || 0) > 1800) level = Math.min(4, level + 1);
-  return ['#1f6f38', '#5a7d2a', '#8a6d1f', '#8a4a1f', '#8a2525'][level];
+  return theme().cal[level];
+}
+
+let calendarByDay = {};
+
+function calendarTipHtml(el) {
+  const key = el.dataset.day;
+  const d = calendarByDay[key];
+  const dateLabel = new Date(key).toLocaleDateString(undefined, {
+    weekday: 'long', day: 'numeric', month: 'short',
+  });
+  if (!d || (!d.tests && !d.outage_seconds && !d.degraded_seconds)) {
+    return `<div class="nm-tooltip-title">${dateLabel}</div><div class="dim">no data</div>`;
+  }
+  const row = (label, val) =>
+    `<div class="nm-tooltip-row"><span class="dim">${label}</span><span>${val}</span></div>`;
+  return `<div class="nm-tooltip-title">${dateLabel}</div>` +
+    row('Avg download', d.dl_mean != null ? `${d.dl_mean} Mbps` : '—') +
+    row('Adherence', d.adherence_pct != null ? `${d.adherence_pct}%` : '—') +
+    row('Tests', d.tests) +
+    row('Outages', fmtDuration(d.outage_seconds || 0)) +
+    row('Degraded', fmtDuration(d.degraded_seconds || 0));
 }
 
 function renderCalendar(rows) {
-  const byDay = Object.fromEntries(rows.map(r => [r.day, r]));
+  calendarByDay = Object.fromEntries(rows.map(r => [r.day, r]));
   const pad = n => String(n).padStart(2, '0');
   const cells = [];
   for (let i = 29; i >= 0; i--) {
     const dt = new Date(Date.now() - i * 864e5);
     const key = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
-    const d = byDay[key];
-    const title = d
-      ? `${key} — avg ${d.dl_mean ?? '—'} Mbps · adherence ${d.adherence_pct ?? '—'}% · ` +
-        `${d.tests} tests · outages ${fmtDuration(d.outage_seconds)} · ` +
-        `degraded ${fmtDuration(d.degraded_seconds || 0)}`
-      : `${key} — no data`;
+    const d = calendarByDay[key];
+    const empty = !d || (!d.tests && !d.outage_seconds && !d.degraded_seconds);
     cells.push(
-      `<div class="cal-day" style="background:${qualityColor(d)}" title="${title}">` +
+      `<div class="cal-day ${empty ? 'cal-day--empty' : ''}" ` +
+      `style="background:${qualityColor(d)}" data-day="${key}">` +
       `<span>${dt.getDate()}</span></div>`
     );
   }
-  document.getElementById('calendar-wrap').innerHTML =
+  const T = theme();
+  const wrap = document.getElementById('calendar-wrap');
+  wrap.innerHTML =
     `<div class="cal-grid">${cells.join('')}</div>` +
     `<div class="cal-legend dim small">` +
-    `<span class="cal-chip" style="background:#1f6f38"></span> good ` +
-    `<span class="cal-chip" style="background:#8a6d1f"></span> below target ` +
-    `<span class="cal-chip" style="background:#8a2525"></span> bad / outages ` +
-    `<span class="cal-chip" style="background:#1e2432"></span> no data</div>`;
+    `<span class="cal-chip" style="background:${T.cal[0]}"></span> good ` +
+    `<span class="cal-chip" style="background:${T.cal[2]}"></span> below target ` +
+    `<span class="cal-chip" style="background:${T.cal[4]}"></span> bad / outages ` +
+    `<span class="cal-chip" style="background:${T.calEmpty}"></span> no data</div>`;
+  if (!wrap.dataset.tooltipBound) {
+    attachTooltip(wrap, '.cal-day', calendarTipHtml);
+    wrap.dataset.tooltipBound = '1';
+  }
 }
 
 
 // ── Outage Gantt timeline ─────────────────────────────────────────────
+let ganttItems = [];
+
+function ganttTipHtml(el) {
+  const r = ganttItems[Number(el.dataset.gi)];
+  if (!r) return null;
+  const titles = { connection: 'Connection outage', degraded: 'Degraded period', host: 'Host check failed' };
+  const dur = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : 'ongoing';
+  const row = (label, val) =>
+    `<div class="nm-tooltip-row"><span class="dim">${label}</span><span>${val}</span></div>`;
+  let extra = '';
+  if (r.type === 'degraded') {
+    extra = row('Avg loss', `${r.avg_loss_pct}%`) + row('Peak loss', `${r.peak_loss_pct}%`);
+  } else {
+    extra = row(r.type === 'host' ? 'Host' : 'Targets', r.triggers.join(', '));
+  }
+  return `<div class="nm-tooltip-title">${titles[r.type] ?? r.type}</div>` +
+    row('Start', fmtDatetime(r.started_at)) +
+    row('Duration', dur) + extra;
+}
+
 function renderGantt(rows, degraded) {
   const el = document.getElementById('outage-gantt');
   const now = Date.now();
@@ -654,39 +835,50 @@ function renderGantt(rows, degraded) {
     return;
   }
 
+  // Tooltip lookup: every bar carries an index into ganttItems.
+  ganttItems = [...deg, ...conn, ...host];
+  let gi = 0;
   const bar = (r, cls) => {
     const s = Math.max(new Date(r.started_at).getTime(), start);
     const e = Math.min(new Date(r.ended_at).getTime(), now);
     const left = ((s - start) / span * 100).toFixed(3);
-    const width = Math.max((e - s) / span * 100, 0.2).toFixed(3);
-    const dur = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : 'OPEN';
-    const what = r.type === 'degraded'
-      ? `degraded, avg ${r.avg_loss_pct}% loss`
-      : r.triggers.join(', ');
-    const title = `${fmtDatetime(r.started_at)} — ${dur} (${what})`;
-    return `<div class="gantt-bar ${cls}" style="left:${left}%;width:${width}%" title="${title}"></div>`;
+    const width = Math.max((e - s) / span * 100, 0.35).toFixed(3);
+    return `<div class="gantt-bar ${cls}" data-gi="${gi++}" style="left:${left}%;width:${width}%"></div>`;
   };
 
-  // Local-midnight tick marks with weekday labels.
-  let ticks = '';
+  // Day boundaries: tick lines inside tracks + a labeled axis row below.
+  let ticks = '', axis = '';
   const first = new Date(start);
   first.setHours(24, 0, 0, 0);
   for (let t = first.getTime(); t < now; t += 864e5) {
     const left = ((t - start) / span * 100).toFixed(3);
-    const lbl = new Date(t).toLocaleDateString(undefined, { weekday: 'short' });
-    ticks += `<div class="gantt-tick" style="left:${left}%"></div>` +
-             `<div class="gantt-tick-label" style="left:${left}%">${lbl}</div>`;
+    const d = new Date(t);
+    const lbl = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+    ticks += `<div class="gantt-tick" style="left:${left}%"></div>`;
+    axis += `<span class="gantt-axis-label" style="left:${left}%">${lbl}</span>`;
   }
 
-  // Degraded (amber) rendered first so outage red draws on top of it.
+  // Degraded (amber) first in the DOM so outage red draws on top of it.
+  const lane = (label, bars) =>
+    `<div class="gantt-row"><span class="gantt-lane-label dim">${label}</span>` +
+    `<div class="gantt-track">${ticks}${bars}</div></div>`;
+
   el.innerHTML =
-    `<div class="gantt-track">${ticks}` +
-      `${deg.map(r => bar(r, 'gantt-bar--deg')).join('')}` +
-      `${conn.map(r => bar(r, 'gantt-bar--conn')).join('')}</div>` +
-    (host.length
-      ? `<div class="gantt-track gantt-track--host">${host.map(r => bar(r, 'gantt-bar--host')).join('')}</div>`
-      : '') +
-    `<div class="gantt-caption dim small">timeline, last 7 days — red: outage, amber: degraded${host.length ? ', bottom lane: host checks' : ''}</div>`;
+    lane('Connection',
+      deg.map(r => bar(r, 'gantt-bar--deg')).join('') +
+      conn.map(r => bar(r, 'gantt-bar--conn')).join('')) +
+    (host.length ? lane('Hosts', host.map(r => bar(r, 'gantt-bar--host')).join('')) : '') +
+    `<div class="gantt-row"><span class="gantt-lane-label"></span>` +
+      `<div class="gantt-axis">${axis}</div></div>` +
+    `<div class="gantt-caption dim small">last 7 days — ` +
+      `<span class="cal-chip" style="background:var(--offline)"></span> outage ` +
+      `<span class="cal-chip" style="background:rgba(210,153,34,0.8)"></span> degraded` +
+      `${host.length ? ' <span class="cal-chip" style="background:#a371f7"></span> host check' : ''}</div>`;
+
+  if (!el.dataset.tooltipBound) {
+    attachTooltip(el, '.gantt-bar', ganttTipHtml);
+    el.dataset.tooltipBound = '1';
+  }
 }
 
 
@@ -697,15 +889,21 @@ async function loadHeatmap() {
   renderHeatmap(data);
 }
 
+let heatmapByTarget = {};
+
 function renderHeatmap({ targets, by_target }) {
   if (!targets.length) {
     document.getElementById('heatmap-wrap').innerHTML = '<span class="dim">No ping data yet.</span>';
     return;
   }
+  heatmapByTarget = by_target;
 
   const hours = Array.from({ length: 24 }, (_, i) => i);
+  const nowHour = new Date().getHours();
   let html = '<table class="heatmap-table"><thead><tr><th></th>';
-  hours.forEach(h => { html += `<th>${String(h).padStart(2,'0')}h</th>`; });
+  hours.forEach(h => {
+    html += `<th class="${h === nowHour ? 'now' : ''}">${String(h).padStart(2,'0')}h</th>`;
+  });
   html += '</tr></thead><tbody>';
 
   for (const target of targets) {
@@ -714,22 +912,41 @@ function renderHeatmap({ targets, by_target }) {
       const pct = by_target[target]?.[h];
       const bg  = lossColor(pct);
       const txt = pct != null ? (pct === 0 ? '' : `${pct}%`) : '';
-      const title = pct != null ? `${target} at ${String(h).padStart(2,'0')}:00 — ${pct}% loss` : 'no data';
-      html += `<td style="background:${bg}" title="${title}">${txt}</td>`;
+      html += `<td class="${h === nowHour ? 'now' : ''}" style="background:${bg}" ` +
+              `data-target="${target}" data-hour="${h}">${txt}</td>`;
     }
     html += '</tr>';
   }
   html += '</tbody></table>';
-  document.getElementById('heatmap-wrap').innerHTML = html;
+  const wrap = document.getElementById('heatmap-wrap');
+  wrap.innerHTML = html;
+
+  if (!wrap.dataset.tooltipBound) {
+    attachTooltip(wrap, 'td[data-target]', heatmapTipHtml);
+    wrap.dataset.tooltipBound = '1';
+  }
+}
+
+function heatmapTipHtml(el) {
+  const target = el.dataset.target;
+  const h = Number(el.dataset.hour);
+  const pct = heatmapByTarget[target]?.[h];
+  const hourLabel = `${String(h).padStart(2, '0')}:00–${String((h + 1) % 24).padStart(2, '0')}:00`;
+  const row = (label, val) =>
+    `<div class="nm-tooltip-row"><span class="dim">${label}</span><span>${val}</span></div>`;
+  return `<div class="nm-tooltip-title">${target}</div>` +
+    row('Hour', hourLabel) +
+    row('Packet loss', pct != null ? `${pct}%` : 'no data');
 }
 
 function lossColor(pct) {
-  if (pct == null)  return '#1e2432';   // no data
-  if (pct === 0)    return '#0d2b0d';   // clean
-  if (pct < 2)      return '#2b2200';   // trace loss
-  if (pct < 10)     return '#3a1a00';   // noticeable
-  if (pct < 30)     return '#3a0a00';   // bad
-  return '#3a0000';                      // severe
+  const L = theme().loss;
+  if (pct == null)  return L.nodata;
+  if (pct === 0)    return L.clean;
+  if (pct < 2)      return L.trace;
+  if (pct < 10)     return L.mid;
+  if (pct < 30)     return L.bad;
+  return L.severe;
 }
 
 

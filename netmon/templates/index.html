@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NetMon</title>
+  <!-- Apply the saved theme before first paint to avoid a flash. -->
+  <script>document.documentElement.dataset.theme = localStorage.getItem('netmon.theme') || 'dark';</script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -34,6 +36,7 @@
     </div>
     <div class="status-right">
       <span id="last-updated" class="dim">—</span>
+      <button id="theme-toggle" class="btn btn-icon" title="Toggle light/dark theme">☀</button>
       <a class="btn" href="/report" target="_blank" title="Generate the ISP evidence report">📄 Report</a>
       <button id="run-test" class="btn" title="Run a speed test now (bypasses postpone logic)">▶ Run test</button>
       <button id="settings-open" class="btn btn-icon" title="Settings">⚙</button>

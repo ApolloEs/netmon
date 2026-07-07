@@ -14,6 +14,27 @@
   --blue:      #58a6ff;
   --green:     #3fb950;
   --accent:    #1f6feb;
+  --banner-bg:   #3a0000;
+  --banner-text: #ff8080;
+  --tile-label:  rgba(230, 237, 243, 0.55);
+}
+
+:root[data-theme="light"] {
+  --bg:        #f6f8fa;
+  --card:      #ffffff;
+  --border:    #d0d7de;
+  --text:      #1f2328;
+  --dim:       #57606a;
+  --online:    #1a7f37;
+  --offline:   #cf222e;
+  --degraded:  #9a6700;
+  --unknown:   #6e7781;
+  --blue:      #0969da;
+  --green:     #1a7f37;
+  --accent:    #0969da;
+  --banner-bg:   #ffebe9;
+  --banner-text: #cf222e;
+  --tile-label:  rgba(255, 255, 255, 0.85);
 }
 
 html, body {
@@ -61,13 +82,15 @@ html, body {
 
 /* ── Outage banner ──────────────────────────────────────────────── */
 .outage-banner {
-  background: #3a0000;
+  background: var(--banner-bg);
   border-bottom: 1px solid var(--offline);
-  color: #ff8080;
+  color: var(--banner-text);
   padding: 8px 24px;
   font-size: 13px;
 }
-.hidden { display: none; }
+/* Utility: must beat any component's own display rule regardless of
+   declaration order (this bit us twice — modal overlay, chart empty). */
+.hidden { display: none !important; }
 
 /* ── Layout ─────────────────────────────────────────────────────── */
 main {
@@ -188,7 +211,7 @@ main {
 .outage-trigger { color: var(--dim); font-size: 12px; }
 .outage-duration { font-weight: 600; font-variant-numeric: tabular-nums; }
 .outage-open-badge {
-  background: #3a0000;
+  background: var(--banner-bg);
   color: var(--offline);
   border-radius: 4px;
   padding: 2px 6px;
@@ -211,7 +234,10 @@ main {
   padding: 3px 5px;
   cursor: default;
 }
-.cal-day span { font-size: 10px; color: rgba(230, 237, 243, 0.55); font-variant-numeric: tabular-nums; }
+.cal-day span { font-size: 12px; font-weight: 600; color: var(--tile-label); font-variant-numeric: tabular-nums; }
+/* No-data tiles are near the page background — label needs the dim
+   text color instead of the on-tile (light-on-color) one. */
+.cal-day--empty span { color: var(--dim); opacity: 0.7; }
 
 .cal-legend { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cal-chip {
@@ -222,25 +248,42 @@ main {
 }
 
 /* ── Outage Gantt timeline ──────────────────────────────────────── */
-.outage-gantt { margin-bottom: 12px; }
+.outage-gantt { margin-bottom: 14px; }
+
+.gantt-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.gantt-lane-label {
+  flex: 0 0 72px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: right;
+}
 
 .gantt-track {
   position: relative;
-  height: 22px;
+  flex: 1;
+  height: 32px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  /* overflow stays visible: the weekday labels hang below the track */
-  margin-bottom: 16px;
+  border-radius: 5px;
+  overflow: hidden;
 }
-.gantt-track--host { height: 14px; margin-top: -10px; }
+.gantt-row:nth-child(2) .gantt-track { height: 20px; }  /* host lane, slimmer */
 
 .gantt-bar {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 3px;
+  bottom: 3px;
   border-radius: 2px;
-  min-width: 2px;
+  min-width: 3px;
+  cursor: default;
 }
 .gantt-bar--conn { background: var(--offline); }
 .gantt-bar--host { background: #a371f7; }
@@ -252,14 +295,21 @@ main {
   width: 1px;
   background: var(--border);
 }
-.gantt-tick-label {
-  position: absolute;
-  top: 100%;
-  transform: translateX(2px);
-  font-size: 9px;
-  color: var(--dim);
+
+.gantt-axis {
+  position: relative;
+  flex: 1;
+  height: 16px;
 }
-.gantt-caption { margin-top: 2px; }
+.gantt-axis-label {
+  position: absolute;
+  transform: translateX(3px);
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.gantt-caption { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
 
 /* ── Heatmap ─────────────────────────────────────────────────────── */
 .heatmap-wrap { overflow-x: auto; }
@@ -293,6 +343,16 @@ main {
   padding-right: 8px;
   color: var(--dim);
   white-space: nowrap;
+}
+
+/* Current local hour: highlighted column. */
+.heatmap-table th.now {
+  color: var(--blue);
+  font-weight: 700;
+}
+.heatmap-table td.now {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
 }
 
 /* ── Buttons ────────────────────────────────────────────────────── */
@@ -332,11 +392,6 @@ main {
   z-index: 200;
   overflow-y: auto;
 }
-
-/* Must out-rank .modal-overlay's display:flex, which is declared after
-   the .hidden utility in this file. */
-.modal-overlay.hidden { display: none; }
-
 .modal {
   background: var(--card);
   border: 1px solid var(--border);
@@ -357,10 +412,10 @@ main {
 .modal-header h2 { font-size: 16px; font-weight: 600; }
 
 .settings-error {
-  background: #3a0000;
+  background: var(--banner-bg);
   border: 1px solid var(--offline);
   border-radius: 6px;
-  color: #ff8080;
+  color: var(--banner-text);
   padding: 8px 12px;
   font-size: 12px;
   white-space: pre-line;
@@ -455,6 +510,36 @@ main {
   padding-top: 14px;
 }
 .modal-footer span { margin-right: auto; }
+
+/* ── Custom tooltip ─────────────────────────────────────────────── */
+.nm-tooltip {
+  position: fixed;
+  z-index: 300;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  max-width: 280px;
+  white-space: nowrap;
+}
+
+.nm-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px;
+}
+
+.nm-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── Mobile ─────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
