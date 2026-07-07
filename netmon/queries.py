@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from netmon.db import PRIVATE_IP_SQL as _PRIVATE_IP_SQL
-from netmon.pinger import _IPV4_RE
+from netmon.utils import IPV4_RE
 
 
 def _row_to_dict(row) -> dict:
@@ -162,8 +162,8 @@ def get_outages(engine: Engine, days: int = 30) -> list[dict]:
 
 def _group_outages(rows) -> list[dict]:
     """Pure grouping step; rows need started_at, ended_at, trigger, is_open."""
-    anchors = [r for r in rows if _IPV4_RE.match(r.trigger or "")]
-    hosts = [r for r in rows if not _IPV4_RE.match(r.trigger or "")]
+    anchors = [r for r in rows if IPV4_RE.match(r.trigger or "")]
+    hosts = [r for r in rows if not IPV4_RE.match(r.trigger or "")]
 
     # 1. Merge overlapping/adjacent anchor outages into connection events.
     clusters: list[dict] = []

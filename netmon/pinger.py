@@ -6,14 +6,15 @@ Writes every result to connectivity_pings and maintains open/closed
 records in outages.
 
 Public API:
-    run_once(engine, conf, targets) — one full ping cycle across all targets
-    run_loop(engine, conf)          — blocks forever, sleeping ping_interval_seconds
+    PingerState                            — per-target streak/outage bookkeeping
+    restore_state(engine, targets)         — rebuild a PingerState from the DB
+    run_once(engine, conf, targets, state) — one full ping cycle across all targets
+    run_loop(engine, conf)                 — blocks forever, sleeping ping_interval_seconds
 """
 
 from __future__ import annotations
 
 import logging
-import re
 import subprocess
 import time
 from collections import defaultdict
@@ -25,7 +26,7 @@ from sqlalchemy.engine import Engine
 
 from netmon import config as cfg
 from netmon.db import connectivity_pings, outages
-from netmon.utils import now
+from netmon.utils import IPV4_RE, now
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +34,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Gateway resolution
 # ---------------------------------------------------------------------------
-
-_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 
 
 def _resolve_gateway() -> Optional[str]:
@@ -48,14 +47,14 @@ def _resolve_gateway() -> Optional[str]:
             if "Default Gateway" in line:
                 in_gateway = True
                 candidate = line.rsplit(":", 1)[-1].strip()
-                if _IPV4_RE.match(candidate):
+                if IPV4_RE.match(candidate):
                     return candidate
             elif in_gateway:
                 stripped = line.strip()
                 if not stripped:
                     in_gateway = False
                     continue
-                if _IPV4_RE.match(stripped):
+                if IPV4_RE.match(stripped):
                     return stripped
                 if ":" in stripped and not stripped.startswith("2") and not stripped.startswith("fe"):
                     in_gateway = False
@@ -82,22 +81,50 @@ def resolve_targets(raw_targets: list[str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# In-memory outage state (per process lifetime)
+# In-memory outage state
 # ---------------------------------------------------------------------------
 
-# Maps target → consecutive failure count
-_fail_streak: Dict[str, int] = defaultdict(int)
-
-# Maps target → open outage row id (None = no active outage)
-_open_outage: Dict[str, Optional[int]] = defaultdict(lambda: None)
-
-
-def restore_state(engine: Engine, targets: list[str]) -> None:
+class PingerState:
     """
-    Reload outage and streak state from DB after a process restart.
+    Per-target consecutive-failure streaks and open outage row ids.
+
+    Pure bookkeeping: the transition methods return what the caller should
+    do (close or open an outage record) but never touch the database —
+    that separation is what makes the streak logic unit-testable.
+    """
+
+    def __init__(self) -> None:
+        # target → consecutive failure count
+        self.fail_streak: Dict[str, int] = defaultdict(int)
+        # target → open outage row id (None = no active outage)
+        self.open_outage: Dict[str, Optional[int]] = defaultdict(lambda: None)
+
+    def record_success(self, target: str) -> tuple[int, Optional[int]]:
+        """Reset the streak. Returns (previous_streak, outage_id_to_close)."""
+        prev = self.fail_streak[target]
+        self.fail_streak[target] = 0
+        to_close = self.open_outage[target]
+        self.open_outage[target] = None
+        return prev, to_close
+
+    def record_failure(self, target: str, outage_threshold: int) -> tuple[int, bool]:
+        """Bump the streak. Returns (streak, whether an outage should open)."""
+        self.fail_streak[target] += 1
+        streak = self.fail_streak[target]
+        should_open = streak >= outage_threshold and self.open_outage[target] is None
+        return streak, should_open
+
+    def outage_opened(self, target: str, outage_id: int) -> None:
+        self.open_outage[target] = outage_id
+
+
+def restore_state(engine: Engine, targets: list[str]) -> PingerState:
+    """
+    Rebuild pinger state from the DB after a process restart.
     Without this, a restart mid-outage would lose track of the open record
     and need to accumulate a full new failure streak before re-detecting.
     """
+    state = PingerState()
     with engine.connect() as conn:
         open_rows = conn.execute(
             select(outages.c.id, outages.c.trigger)
@@ -105,7 +132,7 @@ def restore_state(engine: Engine, targets: list[str]) -> None:
             .where(outages.c.trigger.in_(targets))
         ).fetchall()
         for row in open_rows:
-            _open_outage[row.trigger] = row.id
+            state.open_outage[row.trigger] = row.id
             log.info("Restored open outage #%d for %s", row.id, row.trigger)
 
         for target in targets:
@@ -122,8 +149,9 @@ def restore_state(engine: Engine, targets: list[str]) -> None:
                 else:
                     break
             if streak:
-                _fail_streak[target] = streak
+                state.fail_streak[target] = streak
                 log.info("Restored failure streak %d for %s", streak, target)
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +213,7 @@ def _ping_target(target: str) -> tuple[bool, Optional[float]]:
 
 def _handle_result(
     engine: Engine,
+    state: PingerState,
     target: str,
     success: bool,
     latency_ms: Optional[float],
@@ -193,18 +222,17 @@ def _handle_result(
     _record_ping(engine, target, success, latency_ms)
 
     if success:
-        if _fail_streak[target] > 0:
-            log.info("%-15s  recovered after %d failures", target, _fail_streak[target])
-        _fail_streak[target] = 0
-        if _open_outage[target] is not None:
-            _close_outage_record(engine, _open_outage[target])
-            _open_outage[target] = None
+        prev_streak, to_close = state.record_success(target)
+        if prev_streak > 0:
+            log.info("%-15s  recovered after %d failures", target, prev_streak)
+        if to_close is not None:
+            _close_outage_record(engine, to_close)
     else:
-        _fail_streak[target] += 1
-        log.warning("%-15s  FAIL  (streak: %d)", target, _fail_streak[target])
-        if _fail_streak[target] >= outage_threshold and _open_outage[target] is None:
+        streak, should_open = state.record_failure(target, outage_threshold)
+        log.warning("%-15s  FAIL  (streak: %d)", target, streak)
+        if should_open:
             outage_id = _open_outage_record(engine, target)
-            _open_outage[target] = outage_id
+            state.outage_opened(target, outage_id)
             log.warning("Outage #%d opened — trigger: %s", outage_id, target)
 
 
@@ -212,14 +240,14 @@ def _handle_result(
 # Public API
 # ---------------------------------------------------------------------------
 
-def run_once(engine: Engine, conf: cfg.Config, targets: list[str]) -> None:
+def run_once(engine: Engine, conf: cfg.Config, targets: list[str], state: PingerState) -> None:
     """Ping all targets once and persist results."""
     threshold = conf.connectivity.outage_threshold_failures
     for target in targets:
         success, latency_ms = _ping_target(target)
         status = f"{latency_ms:.1f}ms" if latency_ms is not None else "FAIL"
         log.info("%-15s  %s", target, status)
-        _handle_result(engine, target, success, latency_ms, threshold)
+        _handle_result(engine, state, target, success, latency_ms, threshold)
 
 
 def run_loop(engine: Engine, conf: cfg.Config) -> None:
@@ -232,8 +260,8 @@ def run_loop(engine: Engine, conf: cfg.Config) -> None:
     interval = conf.connectivity.ping_interval_seconds
     log.info("Pinger started. Targets: %s  Interval: %ds", targets, interval)
 
-    restore_state(engine, targets)
+    state = restore_state(engine, targets)
 
     while True:
-        run_once(engine, conf, targets)
+        run_once(engine, conf, targets, state)
         time.sleep(interval)

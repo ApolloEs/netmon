@@ -26,7 +26,7 @@ def _publish_status(rt: Runtime) -> None:
 
 
 def pinger_job(rt: Runtime) -> None:
-    pinger.run_once(rt.engine, rt.conf, rt.targets)
+    pinger.run_once(rt.engine, rt.conf, rt.targets, rt.pinger_state)
     try:
         _publish_status(rt)
     except Exception as exc:

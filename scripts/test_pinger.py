@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 from sqlalchemy import select, func
 from netmon import config as cfg
 from netmon import db
-from netmon.pinger import resolve_targets, run_once
+from netmon.pinger import PingerState, resolve_targets, run_once
 from netmon.db import connectivity_pings
 
 conf = cfg.load()
@@ -30,7 +30,7 @@ print(f"\nResolved targets: {targets}\n")
 with engine.connect() as conn:
     before = conn.execute(select(func.count()).select_from(connectivity_pings)).scalar()
 
-run_once(engine, conf, targets)
+run_once(engine, conf, targets, PingerState())
 
 # Show new rows
 with engine.connect() as conn:

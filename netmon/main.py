@@ -118,7 +118,7 @@ def main() -> None:
         log.error("No ping targets resolved — cannot start. Check config.")
         sys.exit(1)
 
-    pinger.restore_state(engine, targets)
+    rt.pinger_state = pinger.restore_state(engine, targets)
     rt.targets = targets
 
     # ── Dashboard thread ─────────────────────────────────────────────

@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 # Repo root — anchor for relative log paths so the file lands here even
 # when the process runs as a service with a system CWD (e.g. System32).
 _REPO_ROOT = Path(__file__).parent.parent
+
+# Dotted-quad matcher, shared by the pinger (gateway parsing) and queries
+# (splitting IP anchors from hostname targets when grouping outages).
+IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 
 
 def now() -> datetime:

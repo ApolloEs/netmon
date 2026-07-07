@@ -161,7 +161,7 @@ def create_app(rt: Runtime) -> Flask:
                     "ok": False,
                     "error": "No ping targets resolved from the new config.",
                 }), 400
-            pinger.restore_state(rt.engine, targets)
+            rt.pinger_state = pinger.restore_state(rt.engine, targets)
 
             rt.conf = new_conf
             rt.targets = targets

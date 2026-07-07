@@ -15,6 +15,7 @@ from typing import List, Optional
 from sqlalchemy.engine import Engine
 
 from netmon import config as cfg
+from netmon.pinger import PingerState
 
 
 class Runtime:
@@ -23,4 +24,5 @@ class Runtime:
         self.conf = conf
         self.targets: List[str] = []
         self.scheduler = None  # set by main.py; None in dashboard-only mode
+        self.pinger_state = PingerState()  # replaced via restore_state() at startup/restart
         self.lock = threading.Lock()
