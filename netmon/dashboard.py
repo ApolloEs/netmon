@@ -34,6 +34,8 @@ def _settings_snapshot(conf: cfg.Config) -> dict:
             "ping_interval_seconds": conf.connectivity.ping_interval_seconds,
             "outage_threshold_failures": conf.connectivity.outage_threshold_failures,
             "ping_targets": list(conf.connectivity.ping_targets),
+            "degraded_loss_threshold_pct": conf.connectivity.degraded_loss_threshold_pct,
+            "degraded_window_minutes": conf.connectivity.degraded_window_minutes,
         },
     }
 
@@ -83,6 +85,18 @@ def create_app(rt: Runtime) -> Flask:
     @app.route("/api/ping-heatmap")
     def api_ping_heatmap():
         return jsonify(queries.get_ping_heatmap(rt.engine, days=7))
+
+    @app.route("/api/latency-history")
+    def api_latency_history():
+        return jsonify(queries.get_latency_history(rt.engine, days=7))
+
+    @app.route("/api/daily")
+    def api_daily():
+        return jsonify(queries.get_daily_summary(rt.engine, days=30))
+
+    @app.route("/api/degraded")
+    def api_degraded():
+        return jsonify(queries.get_degraded(rt.engine, days=30))
 
     @app.route("/api/adherence")
     def api_adherence():
@@ -159,6 +173,10 @@ def create_app(rt: Runtime) -> Flask:
             rt.scheduler.reschedule_job(
                 "speed_test", trigger="interval",
                 hours=new_conf.speed_test.interval_hours,
+            )
+            rt.scheduler.reschedule_job(
+                "degraded", trigger="interval",
+                minutes=new_conf.connectivity.degraded_window_minutes,
             )
 
         log.info(

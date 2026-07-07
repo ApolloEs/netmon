@@ -62,6 +62,23 @@
       </div>
     </section>
 
+    <!-- ── Latency over Time ─────────────────────────────────────── -->
+    <section class="card">
+      <h2>Latency <span class="dim">(internet targets, last 7 days, 5-min buckets)</span></h2>
+      <div class="chart-wrap chart-wrap--short">
+        <canvas id="latencyChart"></canvas>
+        <div id="latency-empty" class="chart-empty hidden">No ping data yet.</div>
+      </div>
+    </section>
+
+    <!-- ── Daily Quality Calendar ────────────────────────────────── -->
+    <section class="card">
+      <h2>Daily Quality <span class="dim">(last 30 days — color: adherence &amp; outages)</span></h2>
+      <div id="calendar-wrap" class="calendar-wrap">
+        <span class="dim">Loading…</span>
+      </div>
+    </section>
+
     <!-- ── Adherence + Outage row ────────────────────────────────── -->
     <div class="two-col">
 
@@ -85,6 +102,7 @@
 
       <section class="card">
         <h2>Recent Outages <span class="dim">(last 30 days)</span></h2>
+        <div id="outage-gantt" class="outage-gantt"></div>
         <div id="outage-list" class="outage-list">
           <span class="dim">Loading…</span>
         </div>
@@ -154,6 +172,14 @@
           <label>Failures before outage
             <input type="number" id="set-conn-thresh" min="1" step="1"
                    value="{{ settings.connectivity.outage_threshold_failures }}">
+          </label>
+          <label>Degraded: loss threshold (%)
+            <input type="number" id="set-conn-degpct" min="1" max="99" step="1"
+                   value="{{ settings.connectivity.degraded_loss_threshold_pct }}">
+          </label>
+          <label>Degraded: window (minutes)
+            <input type="number" id="set-conn-degwin" min="1" step="1"
+                   value="{{ settings.connectivity.degraded_window_minutes }}">
           </label>
           <label>Ping targets (one per line, <code>gateway</code> allowed)
             <textarea id="set-conn-targets" rows="4" spellcheck="false">{{ settings.connectivity.ping_targets | join('\n') }}</textarea>

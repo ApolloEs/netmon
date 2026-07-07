@@ -6,6 +6,7 @@ Chart.defaults.borderColor = '#30363d';
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 let speedChart = null;
+let speedChartHovered = false;
 
 // Connection-outage intervals ({start, end} in epoch ms) drawn as red bands.
 let outageBands = [];
@@ -75,7 +76,6 @@ const outageBandsPlugin = {
     const area = chart.chartArea;
     const ctx = chart.ctx;
     ctx.save();
-    ctx.fillStyle = 'rgba(248, 81, 73, 0.16)';
     for (const b of outageBands) {
       let x0 = x.getPixelForValue(b.start);
       let x1 = x.getPixelForValue(b.end);
@@ -84,6 +84,7 @@ const outageBandsPlugin = {
       if (x1 < area.left || x0 > area.right) continue;
       x0 = Math.max(x0, area.left);
       x1 = Math.min(x1, area.right);
+      ctx.fillStyle = b.color || 'rgba(248, 81, 73, 0.16)';
       ctx.fillRect(x0, area.top, x1 - x0, area.height);
     }
     ctx.restore();
@@ -98,6 +99,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadAdherence(),
     loadOutages(),
     loadHeatmap(),
+    loadLatency(),
+    loadDaily(),
   ]);
   connectSSE();
   initSettings();
@@ -112,6 +115,36 @@ async function loadStatus() {
   if (data) applyStatus(data);
 }
 
+// ── Title & favicon reflect live status ──────────────────────────────
+const STATUS_COLORS_UI = {
+  online: '#3fb950', degraded: '#d29922', offline: '#f85149', unknown: '#6e7681',
+};
+
+function statusFavicon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">` +
+              `<circle cx="8" cy="8" r="7" fill="${color}"/></svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
+function updateTitleAndFavicon(status, lastSpeed) {
+  const parts = ['NetMon'];
+  if (status === 'offline') parts.push('OFFLINE');
+  else if (status === 'degraded') parts.push('degraded');
+  else if (lastSpeed && lastSpeed.download_mbps != null) {
+    parts.push(`${round1(lastSpeed.download_mbps)} Mbps`);
+  }
+  document.title = parts.join(' · ');
+
+  let link = document.querySelector('link[rel="icon"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = statusFavicon(STATUS_COLORS_UI[status] ?? STATUS_COLORS_UI.unknown);
+}
+
+
 function applyStatus(data) {
   const dot   = document.getElementById('status-dot');
   const label = document.getElementById('status-label');
@@ -119,6 +152,7 @@ function applyStatus(data) {
 
   dot.className = `dot dot--${data.status}`;
   label.textContent = STATUS_TEXT[data.status] ?? data.status;
+  updateTitleAndFavicon(data.status, data.last_speed);
 
   if (data.last_speed) {
     const s = data.last_speed;
@@ -189,9 +223,30 @@ function insertGapBreaks(points) {
   return out;
 }
 
+// Rolling median of download over a trailing 7-day window — smooths the
+// scatter into the underlying trend.
+function rollingMedian(rows, windowMs = 7 * 864e5) {
+  if (rows.length < 5) return [];
+  const ts = rows.map(r => new Date(r.timestamp).getTime());
+  const out = [];
+  let lo = 0;
+  for (let i = 0; i < rows.length; i++) {
+    while (ts[lo] < ts[i] - windowMs) lo++;
+    const win = rows.slice(lo, i + 1)
+      .map(r => r.download_mbps).filter(v => v != null)
+      .sort((a, b) => a - b);
+    if (!win.length) continue;
+    const mid = Math.floor(win.length / 2);
+    const med = win.length % 2 ? win[mid] : (win[mid - 1] + win[mid]) / 2;
+    out.push({ x: rows[i].timestamp, y: round1(med) });
+  }
+  return out;
+}
+
 function buildSpeedChart(rows, eventRows, targetMbps) {
   const dlData = insertGapBreaks(rows.map(r => ({ x: r.timestamp, y: round1(r.download_mbps) })));
   const ulData = insertGapBreaks(rows.map(r => ({ x: r.timestamp, y: round1(r.upload_mbps) })));
+  const medianData = insertGapBreaks(rollingMedian(rows));
 
   // Annotation scatter datasets (postponed / skipped / error / forced)
   const STATUS_COLORS = {
@@ -213,7 +268,18 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
     hidden: status === 'error' && !showErrorDots(),
   }));
 
-  const ctx = document.getElementById('speedChart').getContext('2d');
+  const canvas = document.getElementById('speedChart');
+  // pointerenter/leave cover both mouse hover and touch contact.
+  canvas.addEventListener('pointerenter', () => {
+    speedChartHovered = true;
+    if (speedChart) speedChart.update('none');
+  });
+  canvas.addEventListener('pointerleave', () => {
+    speedChartHovered = false;
+    if (speedChart) speedChart.update('none');
+  });
+
+  const ctx = canvas.getContext('2d');
   speedChart = new Chart(ctx, {
     type: 'line',
     plugins: [noDataPlugin, outageBandsPlugin],  // order: outage red on top
@@ -225,7 +291,11 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           borderColor: '#58a6ff',
           backgroundColor: 'rgba(88,166,255,0.08)',
           borderWidth: 2,
-          pointRadius: 3,
+          // All points materialize while the cursor is over the chart
+          // (or a finger is on it) — clean lines otherwise.
+          pointRadius: () => speedChartHovered ? 3 : 0,
+          pointHoverRadius: 5,
+          pointHitRadius: 12,
           tension: 0.3,
           fill: true,
         },
@@ -235,7 +305,9 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           borderColor: '#3fb950',
           backgroundColor: 'transparent',
           borderWidth: 1.5,
-          pointRadius: 2,
+          pointRadius: () => speedChartHovered ? 2 : 0,
+          pointHoverRadius: 4,
+          pointHitRadius: 12,
           tension: 0.3,
         },
         {
@@ -248,6 +320,15 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           borderDash: [6, 4],
           pointRadius: 0,
           fill: false,
+        },
+        {
+          label: '7d median',
+          data: medianData,
+          borderColor: '#e3b341',
+          borderWidth: 2,
+          borderDash: [8, 4],
+          pointRadius: 0,
+          tension: 0.2,
         },
         ...annotationDatasets,
       ],
@@ -335,19 +416,30 @@ function applyAdherence(data) {
 
 // ── Outage list ───────────────────────────────────────────────────────
 async function loadOutages() {
-  const rows = await fetchJson('/api/outages');
+  const [rows, degraded] = await Promise.all([
+    fetchJson('/api/outages'),
+    fetchJson('/api/degraded'),
+  ]);
   if (!rows) return;
-  renderOutages(rows);
-  updateOutageBands(rows);
+  const deg = degraded || [];
+  renderOutages(rows, deg);
+  renderGantt(rows, deg);
+  updateOutageBands(rows, deg);
 }
 
-function updateOutageBands(rows) {
-  outageBands = rows
-    .filter(r => r.type === 'connection')
-    .map(r => ({
-      start: new Date(r.started_at).getTime(),
-      end: new Date(r.ended_at).getTime(),  // NOW-coalesced while open
-    }));
+function updateOutageBands(rows, degraded) {
+  const toBand = (r, color) => ({
+    start: new Date(r.started_at).getTime(),
+    end: new Date(r.ended_at).getTime(),  // NOW-coalesced while open
+    color,
+  });
+  // Amber (degraded) first, red (outage) second: draw order makes red
+  // win where they overlap.
+  outageBands = [
+    ...(degraded || []).map(r => toBand(r, 'rgba(210, 153, 34, 0.14)')),
+    ...rows.filter(r => r.type === 'connection')
+           .map(r => toBand(r, 'rgba(248, 81, 73, 0.16)')),
+  ];
   if (speedChart) speedChart.update('none');
 }
 
@@ -379,23 +471,33 @@ function applyChartRange(range) {
   speedChart.update();
 }
 
-function renderOutages(rows) {
+function renderOutages(rows, degraded) {
   const el = document.getElementById('outage-list');
-  if (!rows.length) {
-    el.innerHTML = '<span class="dim">No outages in the last 30 days.</span>';
+  const merged = [...rows, ...(degraded || [])]
+    .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  if (!merged.length) {
+    el.innerHTML = '<span class="dim">No outages or degraded periods in the last 30 days.</span>';
     return;
   }
-  el.innerHTML = rows.map(r => {
-    const dur    = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : '—';
-    const start  = fmtDatetime(r.started_at);
-    const badge  = r.is_open ? '<span class="outage-open-badge">OPEN</span>' : '';
-    const isHost = r.type === 'host';
-    const title  = isHost ? r.triggers[0] : 'Connection';
-    const sub    = isHost
-      ? 'host check — site/DNS unreachable'
-      : r.triggers.join(' · ');
+  el.innerHTML = merged.map(r => {
+    const dur   = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : '—';
+    const start = fmtDatetime(r.started_at);
+    const badge = r.is_open ? '<span class="outage-open-badge">OPEN</span>' : '';
+    let cls = '', title = '', sub = '';
+    if (r.type === 'degraded') {
+      cls = 'outage-item--degraded';
+      title = 'Degraded';
+      sub = `avg ${r.avg_loss_pct}% · peak ${r.peak_loss_pct}% packet loss`;
+    } else if (r.type === 'host') {
+      cls = 'outage-item--host';
+      title = r.triggers[0];
+      sub = 'host check — site/DNS unreachable';
+    } else {
+      title = 'Connection';
+      sub = r.triggers.join(' · ');
+    }
     return `
-      <div class="outage-item ${r.is_open ? 'open' : ''} ${isHost ? 'outage-item--host' : ''}">
+      <div class="outage-item ${r.is_open ? 'open' : ''} ${cls}">
         <div>
           <div><strong>${title}</strong> — ${start} ${badge}</div>
           <div class="outage-trigger">${sub}</div>
@@ -403,6 +505,188 @@ function renderOutages(rows) {
         <div class="outage-duration">${dur}</div>
       </div>`;
   }).join('');
+}
+
+
+// ── Latency chart ─────────────────────────────────────────────────────
+let latencyChart = null;
+
+async function loadLatency() {
+  const rows = await fetchJson('/api/latency-history');
+  const empty = document.getElementById('latency-empty');
+  if (!rows || !rows.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  buildLatencyChart(rows);
+}
+
+function buildLatencyChart(rows) {
+  // Break the line where buckets are missing (monitor was off).
+  const avg = [], p95 = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (i && new Date(rows[i].t) - new Date(rows[i - 1].t) > 15 * 60e3) {
+      const mid = (new Date(rows[i].t).getTime() + new Date(rows[i - 1].t).getTime()) / 2;
+      avg.push({ x: mid, y: null });
+      p95.push({ x: mid, y: null });
+    }
+    avg.push({ x: rows[i].t, y: rows[i].avg_ms });
+    p95.push({ x: rows[i].t, y: rows[i].p95_ms });
+  }
+
+  if (latencyChart) latencyChart.destroy();
+  latencyChart = new Chart(document.getElementById('latencyChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'p95',
+          data: p95,
+          borderColor: 'rgba(210,153,34,0.55)',
+          backgroundColor: 'rgba(210,153,34,0.08)',
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: true,
+        },
+        {
+          label: 'Average',
+          data: avg,
+          borderColor: '#58a6ff',
+          borderWidth: 1.5,
+          pointRadius: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'time',
+          time: { tooltipFormat: 'MMM d, HH:mm', displayFormats: { day: 'MMM d' } },
+          ticks: {
+            major: { enabled: true },
+            font: c => c.tick && c.tick.major ? { weight: 'bold' } : {},
+          },
+          grid: { color: c => c.tick && c.tick.major ? '#3d444d' : '#21262d' },
+        },
+        y: {
+          min: 0,
+          title: { display: true, text: 'ms' },
+          grid: { color: '#21262d' },
+        },
+      },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y} ms` } },
+      },
+    },
+  });
+}
+
+
+// ── Daily quality calendar ────────────────────────────────────────────
+async function loadDaily() {
+  const rows = await fetchJson('/api/daily');
+  if (!rows) return;
+  renderCalendar(rows);
+}
+
+function qualityColor(d) {
+  if (!d || (!d.tests && !d.outage_seconds)) return '#1e2432';  // no data
+  let level;  // 0 best … 4 worst
+  const adh = d.adherence_pct;
+  if (adh == null) level = 2;
+  else if (adh >= 80) level = 0;
+  else if (adh >= 60) level = 1;
+  else if (adh >= 40) level = 2;
+  else if (adh >= 20) level = 3;
+  else level = 4;
+  if (d.outage_seconds > 1800) level = Math.min(4, level + 2);
+  else if (d.outage_seconds > 300) level = Math.min(4, level + 1);
+  if ((d.degraded_seconds || 0) > 1800) level = Math.min(4, level + 1);
+  return ['#1f6f38', '#5a7d2a', '#8a6d1f', '#8a4a1f', '#8a2525'][level];
+}
+
+function renderCalendar(rows) {
+  const byDay = Object.fromEntries(rows.map(r => [r.day, r]));
+  const pad = n => String(n).padStart(2, '0');
+  const cells = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(Date.now() - i * 864e5);
+    const key = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+    const d = byDay[key];
+    const title = d
+      ? `${key} — avg ${d.dl_mean ?? '—'} Mbps · adherence ${d.adherence_pct ?? '—'}% · ` +
+        `${d.tests} tests · outages ${fmtDuration(d.outage_seconds)} · ` +
+        `degraded ${fmtDuration(d.degraded_seconds || 0)}`
+      : `${key} — no data`;
+    cells.push(
+      `<div class="cal-day" style="background:${qualityColor(d)}" title="${title}">` +
+      `<span>${dt.getDate()}</span></div>`
+    );
+  }
+  document.getElementById('calendar-wrap').innerHTML =
+    `<div class="cal-grid">${cells.join('')}</div>` +
+    `<div class="cal-legend dim small">` +
+    `<span class="cal-chip" style="background:#1f6f38"></span> good ` +
+    `<span class="cal-chip" style="background:#8a6d1f"></span> below target ` +
+    `<span class="cal-chip" style="background:#8a2525"></span> bad / outages ` +
+    `<span class="cal-chip" style="background:#1e2432"></span> no data</div>`;
+}
+
+
+// ── Outage Gantt timeline ─────────────────────────────────────────────
+function renderGantt(rows, degraded) {
+  const el = document.getElementById('outage-gantt');
+  const now = Date.now();
+  const start = now - 7 * 864e5;
+  const span = now - start;
+  const within = r => new Date(r.ended_at).getTime() > start;
+  const conn = rows.filter(r => r.type === 'connection' && within(r));
+  const host = rows.filter(r => r.type === 'host' && within(r));
+  const deg  = (degraded || []).filter(within);
+
+  if (!conn.length && !host.length && !deg.length) {
+    el.innerHTML = '<div class="dim small" style="margin-bottom:8px">No outages or degraded periods in the last 7 days.</div>';
+    return;
+  }
+
+  const bar = (r, cls) => {
+    const s = Math.max(new Date(r.started_at).getTime(), start);
+    const e = Math.min(new Date(r.ended_at).getTime(), now);
+    const left = ((s - start) / span * 100).toFixed(3);
+    const width = Math.max((e - s) / span * 100, 0.2).toFixed(3);
+    const dur = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : 'OPEN';
+    const what = r.type === 'degraded'
+      ? `degraded, avg ${r.avg_loss_pct}% loss`
+      : r.triggers.join(', ');
+    const title = `${fmtDatetime(r.started_at)} — ${dur} (${what})`;
+    return `<div class="gantt-bar ${cls}" style="left:${left}%;width:${width}%" title="${title}"></div>`;
+  };
+
+  // Local-midnight tick marks with weekday labels.
+  let ticks = '';
+  const first = new Date(start);
+  first.setHours(24, 0, 0, 0);
+  for (let t = first.getTime(); t < now; t += 864e5) {
+    const left = ((t - start) / span * 100).toFixed(3);
+    const lbl = new Date(t).toLocaleDateString(undefined, { weekday: 'short' });
+    ticks += `<div class="gantt-tick" style="left:${left}%"></div>` +
+             `<div class="gantt-tick-label" style="left:${left}%">${lbl}</div>`;
+  }
+
+  // Degraded (amber) rendered first so outage red draws on top of it.
+  el.innerHTML =
+    `<div class="gantt-track">${ticks}` +
+      `${deg.map(r => bar(r, 'gantt-bar--deg')).join('')}` +
+      `${conn.map(r => bar(r, 'gantt-bar--conn')).join('')}</div>` +
+    (host.length
+      ? `<div class="gantt-track gantt-track--host">${host.map(r => bar(r, 'gantt-bar--host')).join('')}</div>`
+      : '') +
+    `<div class="gantt-caption dim small">timeline, last 7 days — red: outage, amber: degraded${host.length ? ', bottom lane: host checks' : ''}</div>`;
 }
 
 
@@ -461,6 +745,9 @@ function connectSSE() {
       appendSpeedPoint(data);
       loadAdherence();
       loadOutages();
+    } else if (data.type === 'degraded_update') {
+      loadOutages();
+      loadDaily();
     } else if (data.type === 'speed_test_done') {
       setRunTestState(false, data.ok ? undefined : '✕ Test failed');
       if (!data.ok) setTimeout(() => setRunTestState(false), 4000);
@@ -560,6 +847,8 @@ async function openSettings() {
     $s('set-st-maxpost').value    = s.speed_test.max_postpones;
     $s('set-conn-interval').value = s.connectivity.ping_interval_seconds;
     $s('set-conn-thresh').value   = s.connectivity.outage_threshold_failures;
+    $s('set-conn-degpct').value   = s.connectivity.degraded_loss_threshold_pct;
+    $s('set-conn-degwin').value   = s.connectivity.degraded_window_minutes;
     $s('set-conn-targets').value  = s.connectivity.ping_targets.join('\n');
 
     avgMbPerTest  = data.data_cost.avg_mb_per_test;
@@ -620,9 +909,11 @@ function collectSettings() {
       max_postpones:          parseInt($s('set-st-maxpost').value, 10),
     },
     connectivity: {
-      ping_interval_seconds:     parseInt($s('set-conn-interval').value, 10),
-      outage_threshold_failures: parseInt($s('set-conn-thresh').value, 10),
-      ping_targets:              collectTargets(),
+      ping_interval_seconds:       parseInt($s('set-conn-interval').value, 10),
+      outage_threshold_failures:   parseInt($s('set-conn-thresh').value, 10),
+      degraded_loss_threshold_pct: parseFloat($s('set-conn-degpct').value),
+      degraded_window_minutes:     parseInt($s('set-conn-degwin').value, 10),
+      ping_targets:                collectTargets(),
     },
   };
 }

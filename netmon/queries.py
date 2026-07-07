@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from netmon.db import PRIVATE_IP_SQL as _PRIVATE_IP_SQL
 from netmon.pinger import _IPV4_RE
 
 
@@ -220,6 +221,35 @@ def _group_outages(rows) -> list[dict]:
     ]
 
 
+def get_degraded(engine: Engine, days: int = 30) -> list[dict]:
+    """Degraded periods (sustained packet loss), newest-first."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT started_at,
+                       COALESCE(ended_at, NOW()) AS ended_at,
+                       duration_seconds, avg_loss_pct, peak_loss_pct,
+                       ended_at IS NULL AS is_open
+                FROM degraded_periods
+                WHERE started_at >= NOW() - (:days * INTERVAL '1 day')
+                ORDER BY started_at DESC
+            """),
+            {"days": days},
+        ).fetchall()
+    return [
+        {
+            "type": "degraded",
+            "started_at": r.started_at.isoformat(),
+            "ended_at": r.ended_at.isoformat(),
+            "duration_seconds": None if r.is_open else r.duration_seconds,
+            "avg_loss_pct": r.avg_loss_pct,
+            "peak_loss_pct": r.peak_loss_pct,
+            "is_open": r.is_open,
+        }
+        for r in rows
+    ]
+
+
 def get_ping_heatmap(engine: Engine, days: int = 7) -> dict:
     """
     Packet loss % grouped by *local* hour-of-day and target — the goal is
@@ -306,6 +336,98 @@ def get_data_cost(engine: Engine, days: int = 30) -> dict:
         }
     # No tests at all — fall back to the ballpark from CLAUDE.md.
     return {"avg_mb_per_test": 400.0, "sample_count": 0, "estimated": True}
+
+
+def get_latency_history(engine: Engine, days: int = 7) -> list[dict]:
+    """
+    Average and p95 latency of successful pings to *internet* targets,
+    bucketed to 5 minutes. Ping retention is 7 days, so days is capped.
+    """
+    days = min(days, 7)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    to_timestamp(FLOOR(EXTRACT(EPOCH FROM timestamp) / 300) * 300) AS bucket,
+                    AVG(latency_ms) AS avg_ms,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_ms
+                FROM connectivity_pings
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                  AND success AND latency_ms IS NOT NULL
+                  AND target !~ :priv
+                GROUP BY bucket
+                ORDER BY bucket
+            """),
+            {"days": days, "priv": _PRIVATE_IP_SQL},
+        ).fetchall()
+    return [
+        {
+            "t": r.bucket.isoformat(),
+            "avg_ms": round(float(r.avg_ms), 1),
+            "p95_ms": round(float(r.p95_ms), 1),
+        }
+        for r in rows
+    ]
+
+
+def get_daily_summary(engine: Engine, days: int = 30) -> list[dict]:
+    """
+    Per local-calendar-day rollup for the quality calendar: tests, average
+    download, adherence %, and connection-outage seconds (attributed to
+    the day the outage started).
+    """
+    offset_hours = int(
+        datetime.now().astimezone().utcoffset().total_seconds() // 3600
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    ((timestamp AT TIME ZONE 'UTC')
+                     + make_interval(hours => :off))::date AS day,
+                    COUNT(*) AS tests,
+                    AVG(download_mbps) AS dl_mean,
+                    COUNT(*) FILTER (WHERE pct_of_target >= 80) AS good
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                GROUP BY day
+                ORDER BY day
+            """),
+            {"days": days, "off": offset_hours},
+        ).fetchall()
+
+    by_day: dict[str, dict] = {}
+    for r in rows:
+        by_day[r.day.isoformat()] = {
+            "day": r.day.isoformat(),
+            "tests": r.tests,
+            "dl_mean": round(float(r.dl_mean), 1) if r.dl_mean is not None else None,
+            "adherence_pct": round(100.0 * r.good / r.tests, 1) if r.tests else None,
+            "outage_seconds": 0,
+        }
+
+    tz = datetime.now().astimezone().tzinfo
+
+    def _day_entry(day: str) -> dict:
+        return by_day.setdefault(day, {
+            "day": day, "tests": 0, "dl_mean": None,
+            "adherence_pct": None, "outage_seconds": 0, "degraded_seconds": 0,
+        })
+
+    for entry in by_day.values():
+        entry.setdefault("degraded_seconds", 0)
+
+    for o in get_outages(engine, days=days):
+        if o["type"] != "connection":
+            continue
+        day = datetime.fromisoformat(o["started_at"]).astimezone(tz).date().isoformat()
+        _day_entry(day)["outage_seconds"] += o["duration_seconds"] or 0
+
+    for p in get_degraded(engine, days=days):
+        day = datetime.fromisoformat(p["started_at"]).astimezone(tz).date().isoformat()
+        _day_entry(day)["degraded_seconds"] += p["duration_seconds"] or 0
+
+    return sorted(by_day.values(), key=lambda d: d["day"])
 
 
 def get_report_stats(engine: Engine, days: int = 30) -> dict:
@@ -413,6 +535,9 @@ def get_report_stats(engine: Engine, days: int = 30) -> dict:
     host_events = [o for o in grouped if o["type"] == "host"]
     durations = [o["duration_seconds"] or 0 for o in conn_events]
 
+    deg = get_degraded(engine, days=days)
+    deg_durations = [d["duration_seconds"] or 0 for d in deg]
+
     return {
         "period_days": days,
         "tests": {
@@ -446,6 +571,15 @@ def get_report_stats(engine: Engine, days: int = 30) -> dict:
             "longest_seconds": max(durations) if durations else 0,
             "events": conn_events,
             "host_events": host_events,
+        },
+        "degraded": {
+            "count": len(deg),
+            "total_seconds": sum(deg_durations),
+            "longest_seconds": max(deg_durations) if deg_durations else 0,
+            "worst_peak_pct": max(
+                (d["peak_loss_pct"] for d in deg if d["peak_loss_pct"] is not None),
+                default=None,
+            ),
         },
     }
 

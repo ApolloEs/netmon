@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from netmon import events, pinger, queries, speed_test
+from netmon import degraded, events, pinger, queries, speed_test
 from netmon.runtime import Runtime
 from netmon.utils import now
 
@@ -31,6 +31,14 @@ def pinger_job(rt: Runtime) -> None:
         _publish_status(rt)
     except Exception as exc:
         log.warning("Failed to publish ping event: %s", exc)
+
+
+def degraded_job(rt: Runtime) -> None:
+    if degraded.evaluate(rt.engine, rt.conf):
+        try:
+            events.publish("degraded_update", {})
+        except Exception as exc:
+            log.warning("Failed to publish degraded event: %s", exc)
 
 
 def speed_test_job(rt: Runtime, force: bool = False, retry_count: int = 0) -> None:

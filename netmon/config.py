@@ -29,6 +29,9 @@ class ConnectivityConfig:
     ping_interval_seconds: int
     outage_threshold_failures: int
     ping_targets: List[str]
+    # Degraded-period detection: sustained packet loss below outage level.
+    degraded_loss_threshold_pct: float = 5.0
+    degraded_window_minutes: int = 10
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,10 @@ def _validate(conf: Config) -> None:
         errors.append("connectivity.outage_threshold_failures must be >= 1")
     if not conf.connectivity.ping_targets:
         errors.append("connectivity.ping_targets must not be empty")
+    if not (0 < conf.connectivity.degraded_loss_threshold_pct < 100):
+        errors.append("connectivity.degraded_loss_threshold_pct must be between 0 and 100")
+    if conf.connectivity.degraded_window_minutes < 1:
+        errors.append("connectivity.degraded_window_minutes must be >= 1")
     if not (1 <= conf.dashboard.port <= 65535):
         errors.append(f"dashboard.port must be 1-65535 (got {conf.dashboard.port})")
     if errors:
@@ -121,6 +128,8 @@ def _from_raw(raw: dict) -> Config:
                 ping_interval_seconds=conn["ping_interval_seconds"],
                 outage_threshold_failures=conn["outage_threshold_failures"],
                 ping_targets=conn["ping_targets"],
+                degraded_loss_threshold_pct=conn.get("degraded_loss_threshold_pct", 5.0),
+                degraded_window_minutes=conn.get("degraded_window_minutes", 10),
             ),
             database=DatabaseConfig(url=raw["database"]["url"]),
             dashboard=DashboardConfig(
@@ -162,6 +171,7 @@ _EDITABLE_SECTIONS = {
     },
     "connectivity": {
         "ping_interval_seconds", "outage_threshold_failures", "ping_targets",
+        "degraded_loss_threshold_pct", "degraded_window_minutes",
     },
 }
 

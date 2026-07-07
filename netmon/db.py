@@ -21,6 +21,11 @@ from sqlalchemy.engine import Engine
 # Shorthand: timezone-aware timestamp, maps to TZ on Postgres.
 TZ = DateTime(timezone=True)
 
+# Private/LAN addresses (the gateway target) — excluded from internet
+# quality stats (latency, degraded detection): LAN behavior isn't ISP
+# evidence. For use with Postgres `~` / `!~` operators.
+PRIVATE_IP_SQL = r"^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)"
+
 metadata = MetaData()
 
 speed_tests = Table(
@@ -64,6 +69,18 @@ outages = Table(
     Column("ended_at", TZ),
     Column("duration_seconds", Integer),
     Column("trigger", Text),
+)
+
+degraded_periods = Table(
+    "degraded_periods",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("started_at", TZ, nullable=False),
+    Column("ended_at", TZ),            # NULL while the period is ongoing
+    Column("duration_seconds", Integer),
+    Column("avg_loss_pct", Float),     # running average across windows
+    Column("peak_loss_pct", Float),    # worst single window
+    Column("windows_count", Integer),  # number of contributing windows
 )
 
 connectivity_pings = Table(

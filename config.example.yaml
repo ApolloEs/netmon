@@ -11,6 +11,8 @@ speed_test:
 connectivity:
   ping_interval_seconds: 45
   outage_threshold_failures: 3   # consecutive failures before declaring outage
+  degraded_loss_threshold_pct: 5 # record a degraded period when loss >= this %
+  degraded_window_minutes: 10    # ...sustained over windows of this size
   ping_targets:
     - 1.1.1.1
     - 8.8.8.8

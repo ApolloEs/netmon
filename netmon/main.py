@@ -172,6 +172,16 @@ def main() -> None:
     )
 
     scheduler.add_job(
+        lambda: jobs.degraded_job(rt),
+        trigger="interval",
+        minutes=conf.connectivity.degraded_window_minutes,
+        id="degraded",
+        name="Degraded Period Detector",
+        # Early first run so an empty table backfills right away.
+        next_run_time=now() + timedelta(seconds=30),
+    )
+
+    scheduler.add_job(
         lambda: cleanup.prune_pings(rt.engine),
         trigger="interval",
         hours=24,
