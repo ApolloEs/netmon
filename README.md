@@ -10,9 +10,8 @@ bilingual, print-ready evidence report you can hand to your provider.
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
-<!-- Screenshot: drop docs/screenshots/dashboard.png and uncomment
-![NetMon dashboard](docs/screenshots/dashboard.png)
--->
+![NetMon dashboard — speed, latency, and daily quality](docs/screenshots/dashboard1.png)
+![NetMon dashboard — outage timeline, adherence, and packet loss](docs/screenshots/dashboard2.png)
 
 ## Why
 
