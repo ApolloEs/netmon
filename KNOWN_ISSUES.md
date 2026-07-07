@@ -68,15 +68,6 @@ but cast to float in SQL if the client ever computes on them.
 
 ---
 
-## Testing
-
-**No automated test suite.**
-All verification so far has been ad-hoc scripts against the live DB. The
-pure functions are easy wins for pytest: `queries._group_outages`,
-`speed_test._check_thresholds`, `config._validate`, `pinger` streak logic.
-
----
-
 ## Data anomalies (pre-fix test data)
 
 **Outage #1 has a negative duration.**

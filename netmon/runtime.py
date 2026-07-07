@@ -10,7 +10,7 @@ without restarting the process.
 from __future__ import annotations
 
 import threading
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy.engine import Engine
 
