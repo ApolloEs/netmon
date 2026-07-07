@@ -14,15 +14,44 @@ if (-not $isAdmin) {
     Write-Error "This script must run in an elevated (Administrator) PowerShell."
 }
 
-# Prefer the nssm.exe bundled next to this script (verified against the
-# official build's published hash); fall back to one on PATH.
+# NSSM acquisition: prefer an nssm.exe already next to this script, then one
+# on PATH; otherwise download the official 2.24 release and verify its SHA-256
+# against the published checksum before trusting it.
+$NssmZipUrl = "https://nssm.cc/release/nssm-2.24.zip"
+$NssmZipSha256 = "727D1E42275C605E0F04ABA98095C38A8E1E46DEF453CDFFCE42869428AA6743"
+
 $nssm = Join-Path $PSScriptRoot "nssm.exe"
 if (-not (Test-Path $nssm)) {
     $cmd = Get-Command nssm -ErrorAction SilentlyContinue
-    if ($cmd) { $nssm = $cmd.Source } else {
-        Write-Host "nssm.exe not found (neither bundled nor on PATH)." -ForegroundColor Red
-        Write-Host "Get it from https://nssm.cc/download and place nssm.exe (win64) in this folder."
-        exit 1
+    if ($cmd) {
+        $nssm = $cmd.Source
+    } else {
+        Write-Host "nssm.exe not found locally - downloading official 2.24 release..."
+        $zipPath = Join-Path $PSScriptRoot "nssm-2.24.zip"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $NssmZipUrl -OutFile $zipPath -UseBasicParsing
+
+        $actual = (Get-FileHash $zipPath -Algorithm SHA256).Hash
+        if ($actual -ne $NssmZipSha256) {
+            Remove-Item $zipPath -Force
+            Write-Error ("SHA-256 MISMATCH for $NssmZipUrl`n" +
+                "  expected: $NssmZipSha256`n" +
+                "  actual:   $actual`n" +
+                "Refusing to install. Download NSSM manually from https://nssm.cc/download," +
+                " verify it yourself, and place nssm.exe (win64) in this folder.")
+        }
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+            $entry = $zip.Entries | Where-Object { $_.FullName -eq "nssm-2.24/win64/nssm.exe" }
+            if (-not $entry) { Write-Error "win64/nssm.exe not found inside $zipPath." }
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $nssm, $true)
+        } finally {
+            $zip.Dispose()
+        }
+        Remove-Item $zipPath -Force
+        Write-Host "NSSM 2.24 (win64) downloaded, verified, and extracted." -ForegroundColor Green
     }
 }
 

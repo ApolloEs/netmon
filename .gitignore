@@ -28,6 +28,10 @@ logs/
 # Generated evidence reports
 netmon-report-*.html
 
+# NSSM binary — fetched (and checksum-verified) by install-service.ps1
+deploy/windows/nssm.exe
+deploy/windows/*.zip
+
 # OS
 .DS_Store
 Thumbs.db

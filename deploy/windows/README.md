@@ -2,10 +2,15 @@
 
 Runs NetMon at boot, no login required, auto-restarts on crashes.
 
-`nssm.exe` (2.24-103, win64) is **bundled in this folder** — verified
-byte-for-byte against the official build's published hash (nssm.cc has
-regular outages, so don't rely on downloading it). Keep it here: the
-service registration points at this copy.
+`nssm.exe` is **not committed** (no binaries in git). The install script
+acquires it automatically: it prefers an `nssm.exe` already in this folder
+(or on PATH), and otherwise downloads the official 2.24 release from
+nssm.cc, **verifies its SHA-256** against the published checksum (the
+install aborts loudly on any mismatch), and extracts the win64 exe next to
+the script. Once installed, keep `nssm.exe` here: the service registration
+points at this copy. (nssm.cc has occasional outages — if the download
+fails, fetch the zip yourself later or drop in a verified `nssm.exe` by
+hand.)
 
 ## One-time setup
 
