@@ -23,6 +23,10 @@ config.yaml
 
 # Logs
 *.log
+logs/
+
+# Generated evidence reports
+netmon-report-*.html
 
 # OS
 .DS_Store
