@@ -93,13 +93,19 @@ git clone https://github.com/ApolloEs/LineProof.git
 cd LineProof
 pip install -r requirements.txt
 
-# Create the database (once):
-#   CREATE USER netmon WITH PASSWORD '...'; CREATE DATABASE netmon OWNER netmon;
-
 cp config.example.yaml config.yaml     # then edit: target speed, DB URL, CLI path
+
+# Create the database role + database (once; needs Postgres admin access):
+python scripts/setup_db.py
 
 python -m netmon.main                  # start monitoring + dashboard
 ```
+
+`setup_db.py` reads your `config.yaml` and creates the matching role and
+database (idempotently) via an admin connection — pass one with
+`--admin-url` if the default local-superuser connection doesn't work.
+Prefer doing it by hand? The equivalent SQL is:
+`CREATE USER netmon WITH PASSWORD '...'; CREATE DATABASE netmon OWNER netmon;`
 
 Tables are created and migrated automatically at startup
 (`scripts/init_db.py` remains for creating them explicitly).
