@@ -1,18 +1,18 @@
-# NetMon
+# LineProof
 
-**Your ISP promised a speed. NetMon collects the receipts.**
+**Your ISP promised a speed. LineProof collects the receipts.**
 
 A self-hosted internet connection monitor that runs 24/7 on a home machine,
 measures what your line actually delivers, and turns months of data into a
 bilingual, print-ready evidence report you can hand to your provider.
 
-[![CI](https://github.com/ApolloEs/netmon/actions/workflows/ci.yml/badge.svg)](https://github.com/ApolloEs/netmon/actions/workflows/ci.yml)
+[![CI](https://github.com/ApolloEs/LineProof/actions/workflows/ci.yml/badge.svg)](https://github.com/ApolloEs/LineProof/actions/workflows/ci.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
-![NetMon dashboard — speed, latency, and daily quality](docs/screenshots/dashboard1.png)
-![NetMon dashboard — outage timeline, adherence, and packet loss](docs/screenshots/dashboard2.png)
+![LineProof dashboard — speed, latency, and daily quality](docs/screenshots/dashboard1.png)
+![LineProof dashboard — outage timeline, adherence, and packet loss](docs/screenshots/dashboard2.png)
 
 ## Why
 
@@ -54,18 +54,18 @@ with outage logs and packet-loss records is not.
 
 ## Run with Docker
 
-The fastest way to try NetMon — Postgres and the Ookla CLI included, no
+The fastest way to try LineProof — Postgres and the Ookla CLI included, no
 local Python needed:
 
 ```bash
-git clone https://github.com/ApolloEs/netmon.git
-cd netmon
+git clone https://github.com/ApolloEs/LineProof.git
+cd LineProof
 cp config.docker.yaml config.yaml    # then edit target_mbps to your plan
 docker compose up -d
 ```
 
 Dashboard: <http://localhost:5000>. Tables are created automatically on
-first start; data lives in a named volume (`netmon-data`) and survives
+first start; data lives in a named volume (`lineproof-data`) and survives
 `docker compose down`.
 
 Worth knowing:
@@ -89,8 +89,8 @@ Prerequisites: Python 3.10+, PostgreSQL, and the
 [Ookla Speedtest CLI](https://www.speedtest.net/apps/cli).
 
 ```bash
-git clone https://github.com/ApolloEs/netmon.git
-cd netmon
+git clone https://github.com/ApolloEs/LineProof.git
+cd LineProof
 pip install -r requirements.txt
 
 # Create the database (once):

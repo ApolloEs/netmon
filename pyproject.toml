@@ -3,7 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "netmon"
+# Distribution name; the import package stays `netmon` (common pattern —
+# the PyPI/repo name and the import name need not match).
+name = "lineproof"
 version = "1.0.0"
 description = "Self-hosted internet connection monitor: speed, latency, outages, and a print-ready ISP evidence report"
 readme = "README.md"
@@ -22,11 +24,11 @@ classifiers = [
 dynamic = ["dependencies"]
 
 [project.urls]
-Repository = "https://github.com/ApolloEs/netmon"
-Issues = "https://github.com/ApolloEs/netmon/issues"
+Repository = "https://github.com/ApolloEs/LineProof"
+Issues = "https://github.com/ApolloEs/LineProof/issues"
 
 [project.scripts]
-netmon = "netmon.main:main"
+lineproof = "netmon.main:main"
 
 [tool.setuptools]
 packages = ["netmon"]

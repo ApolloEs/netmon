@@ -1,4 +1,4 @@
-# One-command NetMon: `cp config.docker.yaml config.yaml && docker compose up -d`
+# One-command LineProof: `cp config.docker.yaml config.yaml && docker compose up -d`
 #
 # Inside the compose network the database host is `postgres`, and the
 # dashboard must bind 0.0.0.0 (container-internal) for the published port
@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: netmon
       POSTGRES_DB: netmon
     volumes:
-      - netmon-data:/var/lib/postgresql/data
+      - lineproof-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U netmon -d netmon"]
       interval: 5s
@@ -22,7 +22,7 @@ services:
       retries: 12
     restart: unless-stopped
 
-  netmon:
+  lineproof:
     build: .
     depends_on:
       postgres:
@@ -40,4 +40,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  netmon-data:
+  lineproof-data:
