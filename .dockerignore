@@ -1,0 +1,19 @@
+# Secrets stay out of the image — config.yaml is mounted at runtime.
+config.yaml
+
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+*.log
+logs/
+netmon-report-*.html
+.pytest_cache
+.ruff_cache
+tests/
+docs/
+deploy/
+Dockerfile
+docker-compose.yml

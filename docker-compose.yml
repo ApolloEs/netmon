@@ -1,0 +1,43 @@
+# One-command NetMon: `cp config.docker.yaml config.yaml && docker compose up -d`
+#
+# Inside the compose network the database host is `postgres`, and the
+# dashboard must bind 0.0.0.0 (container-internal) for the published port
+# to work — config.docker.yaml has both preset. Anyone who can reach the
+# published port can view the dashboard AND change monitoring settings;
+# don't publish it beyond localhost/LAN without a reverse proxy with auth.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: netmon
+      POSTGRES_PASSWORD: netmon
+      POSTGRES_DB: netmon
+    volumes:
+      - netmon-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netmon -d netmon"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  netmon:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # rw: the dashboard settings panel writes back to config.yaml.
+      - ./config.yaml:/app/config.yaml
+    ports:
+      - "5000:5000"
+    # icmplib pings with privileged=False (SOCK_DGRAM ICMP), which the
+    # kernel gates behind this per-container sysctl. If your runtime
+    # disallows per-container sysctls, run the service privileged instead.
+    sysctls:
+      - net.ipv4.ping_group_range=0 2147483647
+    restart: unless-stopped
+
+volumes:
+  netmon-data:

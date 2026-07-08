@@ -23,14 +23,9 @@ from sqlalchemy import text
 from netmon import config as cfg
 from netmon import db
 
-MIGRATIONS = [
-    # Real bytes transferred per speed test (Ookla JSON), for data-cost stats.
-    "ALTER TABLE speed_tests ADD COLUMN IF NOT EXISTS download_bytes BIGINT",
-    "ALTER TABLE speed_tests ADD COLUMN IF NOT EXISTS upload_bytes BIGINT",
-    # Composite index for the dashboard status query (DISTINCT ON target).
-    "CREATE INDEX IF NOT EXISTS idx_pings_target_time "
-    "ON connectivity_pings (target, timestamp DESC)",
-]
+# The statements live in netmon.db (shared with the automatic startup
+# ensure_schema()); this script remains for explicit, visible runs.
+MIGRATIONS = db.MIGRATIONS
 
 
 def main() -> None:

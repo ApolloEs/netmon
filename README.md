@@ -48,8 +48,40 @@ with outage logs and packet-loss records is not.
   inlined.
 - **Data-cost aware** — real bytes per test are recorded; the settings panel
   projects data usage per day for your current cadence.
-- **Set-and-forget deployment** — Windows service via bundled NSSM, systemd
-  unit prepared for Raspberry Pi.
+- **Set-and-forget deployment** — Docker Compose stack, Windows service
+  via NSSM (downloaded and checksum-verified at install), systemd unit
+  prepared for Raspberry Pi.
+
+## Run with Docker
+
+The fastest way to try NetMon — Postgres and the Ookla CLI included, no
+local Python needed:
+
+```bash
+git clone https://github.com/ApolloEs/netmon.git
+cd netmon
+cp config.docker.yaml config.yaml    # then edit target_mbps to your plan
+docker compose up -d
+```
+
+Dashboard: <http://localhost:5000>. Tables are created automatically on
+first start; data lives in a named volume (`netmon-data`) and survives
+`docker compose down`.
+
+Worth knowing:
+
+- Inside the compose network the database host is `postgres` and the
+  dashboard binds `0.0.0.0` — both preset in `config.docker.yaml`.
+  Anyone who can reach the published port can also change settings, so
+  keep it on localhost/LAN or put a reverse proxy with auth in front.
+- Unprivileged ICMP needs the `net.ipv4.ping_group_range` sysctl, which
+  the compose file sets per-container. If your runtime disallows that,
+  run the service privileged instead.
+- The `gateway` ping target is omitted: a container's gateway is Docker's
+  bridge, not your router.
+- On Docker Desktop (Windows/macOS) speed tests pay VM networking
+  overhead — fine for trying it out; for evidence-grade numbers run
+  natively or on a Linux host.
 
 ## Quick start
 
@@ -65,11 +97,12 @@ pip install -r requirements.txt
 #   CREATE USER netmon WITH PASSWORD '...'; CREATE DATABASE netmon OWNER netmon;
 
 cp config.example.yaml config.yaml     # then edit: target speed, DB URL, CLI path
-python scripts/init_db.py              # create tables
-python scripts/migrate.py              # idempotent schema extras
 
 python -m netmon.main                  # start monitoring + dashboard
 ```
+
+Tables are created and migrated automatically at startup
+(`scripts/init_db.py` remains for creating them explicitly).
 
 Dashboard: <http://127.0.0.1:5000> · Evidence report: the **📄 Report**
 button, or `python scripts/generate_report.py --days 30`.
@@ -77,7 +110,7 @@ button, or `python scripts/generate_report.py --days 30`.
 ## Run it as a service
 
 - **Windows**: [`deploy/windows/`](deploy/windows/README.md) — install script
-  with bundled NSSM, graceful stop, crash restart.
+  (fetches and checksum-verifies NSSM), graceful stop, crash restart.
 - **Raspberry Pi / Linux**: [`deploy/pi/`](deploy/pi/README.md) — systemd
   unit and migration checklist.
 

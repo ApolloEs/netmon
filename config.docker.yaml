@@ -1,0 +1,38 @@
+# Docker Compose preset — copy to config.yaml before `docker compose up`.
+# Differences from config.example.yaml: DB host is the compose service
+# name (postgres), the dashboard binds 0.0.0.0 so the published port
+# works, and there is no `gateway` ping target (inside a container the
+# gateway is Docker's bridge, not your router — pinging it proves nothing).
+
+target_mbps: 100
+
+speed_test:
+  interval_hours: 3
+  soft_threshold: 0.5      # postpone if current use > 50% of target
+  hard_threshold: 0.85     # skip if current use > 85% of target
+  postpone_retry_minutes: 15
+  max_postpones: 3
+  cli_path: speedtest      # installed in the image from Ookla's apt repo
+
+connectivity:
+  ping_interval_seconds: 45
+  outage_threshold_failures: 3   # consecutive failures before declaring outage
+  degraded_loss_threshold_pct: 5 # record a degraded period when loss >= this %
+  degraded_window_minutes: 10    # ...sustained over windows of this size
+  ping_targets:
+    - 1.1.1.1
+    - 8.8.8.8
+    - google.com
+
+database:
+  url: postgresql://netmon:netmon@postgres:5432/netmon
+
+dashboard:
+  host: 0.0.0.0            # container-internal; reachability is decided by `ports`
+  port: 5000
+
+logging:
+  level: INFO
+  file: netmon.log
+  max_bytes: 10485760   # 10 MB per file
+  backup_count: 5       # keep last 5 rotated files (~50 MB total)

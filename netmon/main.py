@@ -110,6 +110,9 @@ def main() -> None:
     engine = db.make_engine(conf.database.url)
     rt = Runtime(engine, conf)
 
+    log.info("Ensuring database schema (create-if-missing + idempotent migrations)...")
+    db.ensure_schema(engine)
+
     log.info("Running startup outage reconcile...")
     outage_detector.reconcile(engine, conf)
 

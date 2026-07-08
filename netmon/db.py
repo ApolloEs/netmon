@@ -118,3 +118,37 @@ def make_engine(db_url: str) -> Engine:
 def create_tables(engine: Engine) -> None:
     """Create all tables if they don't exist."""
     metadata.create_all(engine)
+
+
+# Idempotent DDL for schema elements added after a table already existed —
+# metadata.create_all() only creates missing tables, never missing columns
+# or indexes. Every statement is IF-NOT-EXISTS; schema-only, no data rows.
+MIGRATIONS = [
+    # Real bytes transferred per speed test (Ookla JSON), for data-cost stats.
+    "ALTER TABLE speed_tests ADD COLUMN IF NOT EXISTS download_bytes BIGINT",
+    "ALTER TABLE speed_tests ADD COLUMN IF NOT EXISTS upload_bytes BIGINT",
+    # Composite index for the dashboard status query (DISTINCT ON target).
+    "CREATE INDEX IF NOT EXISTS idx_pings_target_time "
+    "ON connectivity_pings (target, timestamp DESC)",
+]
+
+# Arbitrary but fixed app-wide key for the schema advisory lock ("NETM").
+_SCHEMA_LOCK_KEY = 0x4E45544D
+
+
+def ensure_schema(engine: Engine) -> None:
+    """
+    Create missing tables and apply the idempotent migrations. Runs at
+    every startup so a fresh database (e.g. first `docker compose up`)
+    needs no manual init step. A transaction-scoped advisory lock keeps
+    concurrent starts from racing on DDL.
+    """
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SCHEMA_LOCK_KEY}
+        )
+        metadata.create_all(conn)
+        for stmt in MIGRATIONS:
+            conn.execute(text(stmt))
