@@ -1,4 +1,4 @@
-# NetMon Architecture
+# LineProof Architecture
 
 One long-running Python process (plus PostgreSQL). An APScheduler
 `BlockingScheduler` drives all periodic work; a waitress-served Flask
@@ -60,7 +60,7 @@ Raw pings are the only unbounded-growth table, so `cleanup.py` prunes
 outages, degraded periods, speed tests, test events — is small
 (rows per event, not per probe) and is kept forever, because long-term
 evidence is the point of the project. Net effect: the database stays at
-a roughly constant size no matter how long NetMon runs. The degraded
+a roughly constant size no matter how long LineProof runs. The degraded
 detector is restart-safe within that window: it resumes from
 `started_at + windows_count × window` and backfills the full retention
 window on first run.

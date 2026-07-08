@@ -1,4 +1,4 @@
-# NetMon — Original Design Document
+# LineProof — Original Design Document
 
 *Written before the first line of code; kept verbatim as the project's
 design record. The operational guide for working on the codebase lives

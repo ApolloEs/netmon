@@ -88,7 +88,7 @@ function showErrorDots() {
   return localStorage.getItem(PREF_ERROR_DOTS) !== 'false';
 }
 
-// Washes out periods where no speed tests were attempted (NetMon not
+// Washes out periods where no speed tests were attempted (LineProof not
 // running), so empty plot area isn't mistaken for a healthy quiet line.
 const noDataPlugin = {
   id: 'noData',
@@ -180,7 +180,7 @@ function statusFavicon(color) {
 }
 
 function updateTitleAndFavicon(status, lastSpeed) {
-  const parts = ['NetMon'];
+  const parts = ['LineProof'];
   if (status === 'offline') parts.push('OFFLINE');
   else if (status === 'degraded') parts.push('degraded');
   else if (lastSpeed && lastSpeed.download_mbps != null) {

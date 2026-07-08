@@ -92,7 +92,7 @@ def _register_signal_handlers(scheduler: BlockingScheduler) -> None:
 # ── Main ──────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="NetMon — internet connection monitor.")
+    parser = argparse.ArgumentParser(description="LineProof — internet connection monitor.")
     parser.add_argument("--config", type=Path, default=None)
     args = parser.parse_args()
 

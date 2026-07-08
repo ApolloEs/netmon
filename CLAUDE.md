@@ -1,7 +1,13 @@
-# NetMon — Claude Code Operational Guide
+# LineProof — Claude Code Operational Guide
 
 Self-hosted internet connection monitor: ICMP pinger + Ookla speed tests
 → PostgreSQL → Flask dashboard + printable ISP evidence report.
+
+**Naming (deliberate, not mid-rename):** the project/distribution/command
+is `lineproof`; the import package stays `netmon` (the `pillow` → `PIL`
+pattern), and the Postgres user/database and the Windows service are also
+still `netmon`/`NetMon` — kept so the long-running production instance
+needs no data migration or service re-registration.
 
 The full design rationale (two-layer monitoring, bandwidth-aware
 postponement, data model, build order) is in
