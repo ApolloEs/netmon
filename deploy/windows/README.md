@@ -23,7 +23,7 @@ hand.)
    ```
 4. Open <http://127.0.0.1:5000> and confirm the dashboard is live.
 5. Verify a clean stop once: `Stop-Service NetMon` should return within
-   ~15 seconds and `netmon.log` should end with "NetMon stopped cleanly."
+   ~15 seconds and `netmon.log` should end with "LineProof stopped cleanly."
    Then `Start-Service NetMon` and leave it running.
 
 ## Day to day (elevated PowerShell; built-in cmdlets, no nssm needed)

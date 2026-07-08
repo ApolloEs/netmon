@@ -4,7 +4,8 @@ Self-hosted internet connection monitor: ICMP pinger + Ookla speed tests
 → PostgreSQL → Flask dashboard + printable ISP evidence report.
 
 **Naming (deliberate, not mid-rename):** the project/distribution/command
-is `lineproof`; the import package stays `netmon` (the `pillow` → `PIL`
+is `lineproof` and all user-facing strings (logs, dashboard, report, CLI)
+say LineProof; the import package stays `netmon` (the `pillow` → `PIL`
 pattern), and the Postgres user/database and the Windows service are also
 still `netmon`/`NetMon` — kept so the long-running production instance
 needs no data migration or service re-registration.

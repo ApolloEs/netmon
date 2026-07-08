@@ -1,5 +1,5 @@
 """
-NetMon entry point — wires all modules into a long-running scheduled process.
+LineProof entry point — wires all modules into a long-running scheduled process.
 
 Usage:
     python -m netmon.main
@@ -81,7 +81,7 @@ def _register_signal_handlers(scheduler: BlockingScheduler) -> None:
         name = signal.Signals(signum).name
         log.info("Received %s — stopping scheduler.", name)
         scheduler.shutdown(wait=True)
-        log.info("NetMon stopped cleanly.")
+        log.info("LineProof stopped cleanly.")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_shutdown)
@@ -107,7 +107,7 @@ def main() -> None:
         backup_count=conf.logging.backup_count,
     )
 
-    log.info("NetMon starting up.")
+    log.info("LineProof starting up.")
 
     engine = db.make_engine(conf.database.url)
     rt = Runtime(engine, conf)
