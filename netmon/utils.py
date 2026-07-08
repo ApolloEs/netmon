@@ -21,6 +21,23 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class BrandNameFilter(logging.Filter):
+    """
+    Render logger names under the project brand: netmon.pinger →
+    lineproof.pinger, and __main__ → lineproof.main. The import package
+    stays `netmon` (see the naming note in CLAUDE.md); this only changes
+    how the %(name)s field displays in log output. Idempotent, so passing
+    through both handlers is safe.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "netmon" or record.name.startswith("netmon."):
+            record.name = "lineproof" + record.name[len("netmon"):]
+        elif record.name == "__main__":
+            record.name = "lineproof.main"
+        return True
+
+
 def setup_logging(level: str, log_file: str, max_bytes: int, backup_count: int) -> None:
     """
     Configure root logger with a rotating file handler and a stderr handler.
@@ -39,14 +56,18 @@ def setup_logging(level: str, log_file: str, max_bytes: int, backup_count: int) 
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
+    brand = BrandNameFilter()
+
     # Rotating file — keeps the last N × max_bytes of logs
     fh = logging.handlers.RotatingFileHandler(
         log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
     )
     fh.setFormatter(fmt)
+    fh.addFilter(brand)
     root.addHandler(fh)
 
     # stderr for interactive runs
     sh = logging.StreamHandler()
     sh.setFormatter(fmt)
+    sh.addFilter(brand)
     root.addHandler(sh)
