@@ -4,16 +4,6 @@ Items identified during code review but not yet addressed.
 
 ---
 
-## Stage 8 — one manual step remaining
-
-The service scripts are in `deploy/windows/`. What's left is running the
-install in an elevated shell and verifying the stop path once:
-`install-service.ps1` → `nssm start NetMon` → dashboard loads →
-`nssm stop NetMon` returns within ~15s and netmon.log ends with
-"NetMon stopped cleanly." (NSSM sends console Ctrl+C → SIGINT handler.)
-
----
-
 ## bandwidth.py
 
 **Interface selection heuristic is fragile.**
@@ -65,5 +55,6 @@ DB rows without an explicit request.
 
 ## Raspberry Pi migration (v2)
 
-See `deploy/pi/README.md` for the full checklist: gateway resolution,
+See `deploy/pi/README.md` for the remaining checklist:
 `ping_group_range` sysctl, ARM Ookla CLI, config review.
+(Gateway resolution on Linux is done.)

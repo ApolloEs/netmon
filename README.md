@@ -138,8 +138,19 @@ the dashboard keeps working *during* outages). Raw pings are kept 7 days
 (aggregates and detected periods are kept forever), so the database stays
 small indefinitely.
 
-See [`CLAUDE.md`](CLAUDE.md) for the original design document and
-[`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the honest list of rough edges.
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the original design document,
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the as-built data flow,
+and [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the honest list of rough edges.
+
+## Security / trust model
+
+The dashboard has **no authentication** — by design, for a single-user
+tool on a home machine. The default bind is `127.0.0.1`, which keeps it
+local. If you bind to a LAN address or run the Docker stack (which
+publishes the port), anyone with network access can view your data,
+**change monitoring settings, and trigger restarts**. If that matters on
+your network, put it behind a reverse proxy with authentication; don't
+expose it to the internet as-is.
 
 ## Roadmap
 
