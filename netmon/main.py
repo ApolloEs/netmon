@@ -19,6 +19,8 @@ from pathlib import Path
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
 from waitress import serve as waitress_serve
 
 from netmon import cleanup, config as cfg, db, jobs, outage_detector, pinger
@@ -111,7 +113,21 @@ def main() -> None:
     rt = Runtime(engine, conf)
 
     log.info("Ensuring database schema (create-if-missing + idempotent migrations)...")
-    db.ensure_schema(engine)
+    try:
+        db.ensure_schema(engine)
+    except OperationalError as exc:
+        # The most common first-run failure (Postgres down, wrong password,
+        # URL typo) — one actionable line instead of a 30-line traceback.
+        # Anything other than a connection-level error still raises normally.
+        masked = make_url(conf.database.url).render_as_string(hide_password=True)
+        reason = str(exc.orig).strip().splitlines()[0] if exc.orig else str(exc)
+        log.error(
+            "Cannot connect to the database at %s. Is PostgreSQL running, and do "
+            "the credentials in config.yaml match? See the Quick start in "
+            "README.md. (%s)",
+            masked, reason,
+        )
+        sys.exit(1)
 
     log.info("Running startup outage reconcile...")
     outage_detector.reconcile(engine, conf)
