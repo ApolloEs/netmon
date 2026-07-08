@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netmon"
+version = "1.0.0"
+description = "Self-hosted internet connection monitor: speed, latency, outages, and a print-ready ISP evidence report"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "ApolloEs" }]
+keywords = ["internet", "monitoring", "speedtest", "outage", "isp"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Networking :: Monitoring",
+]
+# Single source of truth for dependencies is requirements.txt (also used
+# directly by the Dockerfile for layer caching).
+dynamic = ["dependencies"]
+
+[project.urls]
+Repository = "https://github.com/ApolloEs/netmon"
+Issues = "https://github.com/ApolloEs/netmon/issues"
+
+[project.scripts]
+netmon = "netmon.main:main"
+
+[tool.setuptools]
+packages = ["netmon"]
+
+[tool.setuptools.package-data]
+netmon = ["templates/*.html", "static/*", "static/vendor/*", "schema.sql"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+# Deliberately minimal: default rule set (pyflakes + core pycodestyle),
+# just widened to the line length the codebase already uses.
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+# Smoke-test scripts do sys.path surgery before importing netmon.
+"scripts/*" = ["E402"]
+
+[tool.pytest.ini_options]
+# Only collect from tests/ — scripts/ contains smoke scripts whose names
+# match test_*.py but which hit the live DB at import time.
+testpaths = ["tests"]

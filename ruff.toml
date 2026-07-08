@@ -1,8 +1,0 @@
-# Deliberately minimal: default rule set (pyflakes + core pycodestyle),
-# just widened to the line length the codebase already uses.
-line-length = 100
-target-version = "py310"
-
-[lint.per-file-ignores]
-# Smoke-test scripts do sys.path surgery before importing netmon.
-"scripts/*" = ["E402"]
