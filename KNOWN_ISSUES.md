@@ -14,21 +14,6 @@ install in an elevated shell and verifying the stop path once:
 
 ---
 
-## pinger.py
-
-**Gateway resolution is Windows-only.**
-`_resolve_gateway()` parses `ipconfig` output. On the Raspberry Pi (Linux),
-this will fail silently and drop the gateway target. Fix: detect the platform
-and run `ip route show default`, parsing the `via <ip>` field.
-(Also listed in deploy/pi/README.md as a migration blocker.)
-
-**Ping targets are checked sequentially.**
-With 4 targets and a 2s timeout each, a full-failure cycle takes up to 8s.
-At short ping intervals this eats into the cycle. Fix: run pings
-concurrently with `threading` or `asyncio`.
-
----
-
 ## bandwidth.py
 
 **Interface selection heuristic is fragile.**

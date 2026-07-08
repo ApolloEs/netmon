@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
 
 from icmplib import ping as icmp_ping
@@ -36,29 +38,50 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _gateway_from_ipconfig() -> Optional[str]:
+    """Windows: parse `ipconfig` output for the default gateway."""
+    result = subprocess.run(
+        ["ipconfig"], capture_output=True, text=True, timeout=5
+    )
+    in_gateway = False
+    for line in result.stdout.splitlines():
+        if "Default Gateway" in line:
+            in_gateway = True
+            candidate = line.rsplit(":", 1)[-1].strip()
+            if IPV4_RE.match(candidate):
+                return candidate
+        elif in_gateway:
+            stripped = line.strip()
+            if not stripped:
+                in_gateway = False
+                continue
+            if IPV4_RE.match(stripped):
+                return stripped
+            if ":" in stripped and not stripped.startswith("2") and not stripped.startswith("fe"):
+                in_gateway = False
+    return None
+
+
+def _gateway_from_ip_route() -> Optional[str]:
+    """Linux: parse `ip route show default` for the `via <ip>` field."""
+    result = subprocess.run(
+        ["ip", "route", "show", "default"], capture_output=True, text=True, timeout=5
+    )
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if "via" in parts:
+            candidate = parts[parts.index("via") + 1]
+            if IPV4_RE.match(candidate):
+                return candidate
+    return None
+
+
 def _resolve_gateway() -> Optional[str]:
     """Return the default IPv4 gateway, or None if it can't be determined."""
     try:
-        result = subprocess.run(
-            ["ipconfig"], capture_output=True, text=True, timeout=5
-        )
-        in_gateway = False
-        for line in result.stdout.splitlines():
-            if "Default Gateway" in line:
-                in_gateway = True
-                candidate = line.rsplit(":", 1)[-1].strip()
-                if IPV4_RE.match(candidate):
-                    return candidate
-            elif in_gateway:
-                stripped = line.strip()
-                if not stripped:
-                    in_gateway = False
-                    continue
-                if IPV4_RE.match(stripped):
-                    return stripped
-                if ":" in stripped and not stripped.startswith("2") and not stripped.startswith("fe"):
-                    in_gateway = False
-        return None
+        if sys.platform == "win32":
+            return _gateway_from_ipconfig()
+        return _gateway_from_ip_route()
     except Exception as exc:
         log.warning("Could not resolve gateway: %s", exc)
         return None
@@ -241,10 +264,15 @@ def _handle_result(
 # ---------------------------------------------------------------------------
 
 def run_once(engine: Engine, conf: cfg.Config, targets: list[str], state: PingerState) -> None:
-    """Ping all targets once and persist results."""
+    """
+    Ping all targets once and persist results. Pings run concurrently so a
+    full-failure cycle costs one timeout, not len(targets) of them; results
+    are still handled deterministically in target order.
+    """
     threshold = conf.connectivity.outage_threshold_failures
-    for target in targets:
-        success, latency_ms = _ping_target(target)
+    with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+        results = list(pool.map(_ping_target, targets))
+    for target, (success, latency_ms) in zip(targets, results):
         status = f"{latency_ms:.1f}ms" if latency_ms is not None else "FAIL"
         log.info("%-15s  %s", target, status)
         _handle_result(engine, state, target, success, latency_ms, threshold)

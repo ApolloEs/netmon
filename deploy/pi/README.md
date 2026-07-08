@@ -6,18 +6,17 @@ things that MUST be addressed during the migration.
 
 ## Known blockers to fix before/while migrating
 
-1. **Gateway resolution is Windows-only.** `pinger._resolve_gateway()`
-   parses `ipconfig`. On Linux it must run `ip route show default` and
-   parse the `via <ip>` field. Until fixed, the `gateway` ping target is
-   silently dropped.
-2. **Unprivileged ICMP needs a sysctl.** icmplib with `privileged=False`
+1. **Unprivileged ICMP needs a sysctl.** icmplib with `privileged=False`
    requires the service user's group in the ping range:
    `sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`
    (persist in `/etc/sysctl.d/99-netmon.conf`).
-3. **Ookla CLI path.** Install the ARM build of the Ookla speedtest CLI
+2. **Ookla CLI path.** Install the ARM build of the Ookla speedtest CLI
    and update `speed_test.cli_path` in config.yaml.
-4. **config.yaml review.** DB URL (local PG on the Pi vs remote),
+3. **config.yaml review.** DB URL (local PG on the Pi vs remote),
    log path, and any Windows-specific paths.
+
+(Gateway resolution works on Linux since the `ip route show default`
+parser was added to `pinger._resolve_gateway()` — no longer a blocker.)
 
 ## Install sketch
 
