@@ -1237,6 +1237,8 @@ function hideSettingsError() {
 async function fetchJson(url) {
   try {
     const r = await fetch(url);
+    // Session expired (auth enabled) — bounce to the login page.
+    if (r.status === 401) { window.location = '/login'; return null; }
     return r.ok ? r.json() : null;
   } catch {
     return null;

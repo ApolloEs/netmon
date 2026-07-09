@@ -115,6 +115,15 @@ button, or `python scripts/generate_report.py --days 30`.
 
 ### View from your phone
 
+Optionally set a passphrase first so only people who know it can see your
+data (recommended once you bind to the LAN):
+
+```bash
+python scripts/set_password.py    # stores only a hash; the PC itself bypasses
+```
+
+Then:
+
 1. In `config.yaml`, set `dashboard.host: 0.0.0.0` and restart.
 2. Allow the port through the firewall, LAN-only (elevated PowerShell on
    Windows):
@@ -167,17 +176,22 @@ and [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the honest list of rough edges.
 
 ## Security / trust model
 
-Designed for a single household, not the open internet. The default bind
-is `127.0.0.1` (local only). When bound to the LAN, other devices get a
-**read-only** dashboard — they can see all your data (including the
-evidence report with any identity lines you configured) but can't change
-settings, restart monitoring, or trigger tests unless enrolled by
-scanning the QR from the PC (`dashboard.require_edit_token: true`, the
-default; the Docker preset disables it and publishes the port
-loopback-only instead). Traffic is plain HTTP — nothing is encrypted on
-the wire — and the enrollment cookie is only as private as your Wi-Fi.
-Don't expose it to the internet as-is; use a reverse proxy with
-authentication and TLS if you need remote access.
+Designed for a single household, not the open internet. Two layers gate
+access (see [`docs/SECURITY.md`](docs/SECURITY.md) for the full model):
+
+- **View** — with a passphrase set (`scripts/set_password.py`), LAN/remote
+  devices must log in before seeing anything; without one, any device on
+  the LAN can view (but not change) your data. The PC itself (localhost)
+  always bypasses.
+- **Edit** — changing settings, restarting, or running a test additionally
+  requires localhost or a device enrolled via the QR ("Link device").
+
+The default bind is `127.0.0.1` (local only). Traffic is plain **HTTP** —
+nothing is encrypted on the wire, so the passphrase and cookies are only
+as private as your Wi-Fi. TLS is the planned next layer (see
+[`docs/SECURITY.md`](docs/SECURITY.md)); until then, don't expose this to
+the internet — for remote access, front it with a reverse proxy (or
+Tailscale) providing TLS and auth.
 
 ## Roadmap
 

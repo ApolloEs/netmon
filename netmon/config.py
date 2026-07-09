@@ -47,6 +47,11 @@ class DashboardConfig:
     # the QR flow (see netmon/deviceauth.py). Docker preset sets False —
     # inside a container no request ever looks like localhost.
     require_edit_token: bool = True
+    # werkzeug password hash. When set, LAN/remote devices must log in
+    # with the passphrase before seeing anything (localhost bypasses).
+    # Empty = no login gate. Set it with scripts/set_password.py — never
+    # store the plaintext passphrase here.
+    password_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -142,6 +147,7 @@ def _from_raw(raw: dict) -> Config:
                 require_edit_token=bool(
                     raw["dashboard"].get("require_edit_token", True)
                 ),
+                password_hash=str(raw["dashboard"].get("password_hash", "") or ""),
             ),
             logging=LoggingConfig(
                 level=lg.get("level", "INFO"),

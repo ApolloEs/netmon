@@ -29,6 +29,11 @@ dashboard:
   # the QR from the PC view ("Link device" button). Set false to let anyone who can
   # reach the port edit settings.
   require_edit_token: true
+  # Optional passphrase gate: when set, LAN/remote devices must log in
+  # before seeing anything (the PC itself bypasses). Set it with
+  #   python scripts/set_password.py
+  # which writes the hash here — never put the plaintext passphrase in.
+  # password_hash: ""
 
 # Optional: identity lines printed in the ISP evidence report header.
 # Leave out (or blank) to get fill-in-by-hand lines instead.

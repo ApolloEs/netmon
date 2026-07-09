@@ -511,6 +511,44 @@ main {
 }
 .modal-footer span { margin-right: auto; }
 
+/* ── Login page ─────────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px;
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-title { font-size: 22px; font-weight: 700; }
+.login-card input[type="password"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 15px;
+}
+.login-submit { margin-top: 4px; padding: 10px; }
+.login-error {
+  background: var(--banner-bg);
+  border: 1px solid var(--offline);
+  border-radius: 6px;
+  color: var(--banner-text);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
 /* ── Phone enrollment modal ─────────────────────────────────────── */
 .modal--narrow { max-width: 380px; }
 

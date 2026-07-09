@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import queue
 import socket
+from datetime import timedelta
 from pathlib import Path
 
 from flask import (
-    Flask, Response, jsonify, redirect, render_template, request,
-    stream_with_context,
+    Flask, Response, jsonify, redirect, render_template, request, session,
+    stream_with_context, url_for,
 )
+from werkzeug.security import check_password_hash
 
 from netmon import config as cfg
 from netmon import events, jobs, pinger, queries, report as report_mod, speed_test
@@ -57,6 +60,10 @@ def _lan_ip() -> str:
 
 DEVICE_COOKIE = "lineproof_device"
 
+# Endpoints reachable without a login session (the login form itself,
+# static assets, and QR enrollment which authenticates via its token).
+_PUBLIC_ENDPOINTS = {"login", "logout", "static", "enroll"}
+
 
 def create_app(rt: Runtime) -> Flask:
     app = Flask(
@@ -70,13 +77,66 @@ def create_app(rt: Runtime) -> Flask:
 
     # ------------------------------------------------------------------
     # Device trust: localhost always edits; LAN devices are read-only
-    # until enrolled by scanning the QR minted on the PC view.
+    # until enrolled by scanning the QR minted on the PC view. When a
+    # passphrase is configured, viewing also requires a login session.
     # ------------------------------------------------------------------
 
     auth = DeviceAuth(cfg.CONFIG_PATH.parent / ".dashboard-secret")
 
+    # Session-signing key derived from (but not equal to) the device
+    # secret, so an enrolled device's cookie value can't forge sessions.
+    app.secret_key = hashlib.sha256(("session:" + auth.secret).encode()).digest()
+    app.permanent_session_lifetime = timedelta(days=30)
+
     def _is_local() -> bool:
         return request.remote_addr in ("127.0.0.1", "::1")
+
+    def _auth_enabled() -> bool:
+        return bool(rt.conf.dashboard.password_hash)
+
+    def _is_logged_in() -> bool:
+        if not _auth_enabled() or _is_local():
+            return True
+        # An enrolled (edit-capable) device is implicitly allowed to view.
+        if auth.is_trusted(request.cookies.get(DEVICE_COOKIE)):
+            return True
+        return session.get("authed") is True
+
+    @app.before_request
+    def _require_login():
+        if request.endpoint in _PUBLIC_ENDPOINTS or _is_logged_in():
+            return None
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "Login required.",
+                            "login_required": True}), 401
+        return redirect(url_for("login", next=request.path))
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if _is_logged_in():
+            return redirect("/")
+        error = None
+        if request.method == "POST":
+            supplied = request.form.get("password", "")
+            if _auth_enabled() and check_password_hash(
+                rt.conf.dashboard.password_hash, supplied
+            ):
+                session["authed"] = True
+                session.permanent = True
+                dest = request.args.get("next") or "/"
+                # Only allow same-site relative redirects.
+                if not dest.startswith("/"):
+                    dest = "/"
+                log.info("Dashboard login from %s.", request.remote_addr)
+                return redirect(dest)
+            error = "Incorrect passphrase."
+            log.warning("Failed dashboard login from %s.", request.remote_addr)
+        return render_template("login.html", error=error), (401 if error else 200)
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("login"))
 
     def _binds_lan() -> bool:
         # Only meaningful to enroll another device when the dashboard is
@@ -136,6 +196,11 @@ def create_app(rt: Runtime) -> Flask:
                 "<p>Generate a fresh one with the 'Link device' button on the PC.</p>",
                 403,
             )
+        # Enrolling also logs the device in — one QR scan grants both view
+        # (session) and edit (device cookie), so the phone never types the
+        # passphrase.
+        session["authed"] = True
+        session.permanent = True
         resp = redirect("/")
         resp.set_cookie(
             DEVICE_COOKIE, secret,

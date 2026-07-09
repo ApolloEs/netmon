@@ -32,6 +32,11 @@ class DeviceAuth:
         # one-time enrollment tokens → expiry timestamp
         self._tokens: Dict[str, float] = {}
 
+    @property
+    def secret(self) -> str:
+        """The per-install secret (also the trusted-device cookie value)."""
+        return self._secret
+
     def _load_or_create_secret(self) -> str:
         try:
             existing = self._secret_path.read_text().strip()

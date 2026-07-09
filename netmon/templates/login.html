@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LineProof — Sign in</title>
+  <!-- Apply the saved theme before first paint to avoid a flash. -->
+  <script>document.documentElement.dataset.theme = localStorage.getItem('netmon.theme') || 'dark';</script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" method="POST" action="{{ url_for('login', next=request.args.get('next', '')) }}">
+      <h1 class="login-title">LineProof</h1>
+      <p class="dim small">This dashboard is passphrase-protected.</p>
+      {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+      <input type="password" name="password" placeholder="Passphrase"
+             autocomplete="current-password" autofocus required>
+      <button type="submit" class="btn btn-primary login-submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>
