@@ -511,6 +511,28 @@ main {
 }
 .modal-footer span { margin-right: auto; }
 
+/* ── Phone enrollment modal ─────────────────────────────────────── */
+.modal--narrow { max-width: 380px; }
+
+.enroll-qr {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0;
+}
+.enroll-qr svg {
+  width: 260px;
+  max-width: 100%;
+  height: auto;
+  /* Quiet zone + dark-mode scannability: the QR stays on white. */
+  background: #fff;
+  border-radius: 6px;
+}
+.enroll-url {
+  word-break: break-all;
+  text-align: center;
+  user-select: all;
+}
+
 /* ── Custom tooltip ─────────────────────────────────────────────── */
 .nm-tooltip {
   position: fixed;

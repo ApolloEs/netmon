@@ -30,8 +30,11 @@ services:
     volumes:
       # rw: the dashboard settings panel writes back to config.yaml.
       - ./config.yaml:/app/config.yaml
+    # Loopback-only by default: the dashboard has open edit rights in
+    # Docker (see config.docker.yaml), so it isn't published to the LAN
+    # unless you change this to "5000:5000" deliberately.
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     # icmplib pings with privileged=False (SOCK_DGRAM ICMP), which the
     # kernel gates behind this per-container sysctl. If your runtime
     # disallows per-container sysctls, run the service privileged instead.

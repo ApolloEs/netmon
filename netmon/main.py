@@ -142,14 +142,15 @@ def main() -> None:
 
     # ── Dashboard thread ─────────────────────────────────────────────
     # waitress instead of Flask's dev server: production-grade, works on
-    # Windows and the Pi. 8 threads — each SSE client parks one.
+    # Windows and the Pi. 16 threads — each SSE client (PC, phone, spare
+    # tabs) parks one for its whole connection lifetime.
     flask_app = create_app(rt)
     dash_thread = threading.Thread(
         target=lambda: waitress_serve(
             flask_app,
             host=conf.dashboard.host,
             port=conf.dashboard.port,
-            threads=8,
+            threads=16,
         ),
         name="dashboard",
         daemon=True,

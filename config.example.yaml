@@ -22,8 +22,13 @@ database:
   url: postgresql://netmon:yourpassword@localhost:5432/netmon
 
 dashboard:
-  host: 127.0.0.1
+  host: 127.0.0.1   # 0.0.0.0 = also visible on your LAN (phone etc.);
+                    # needs a firewall rule — see "View from your phone" in README
   port: 5000
+  # With LAN access, other devices are read-only until enrolled by scanning
+  # the QR from the PC view ("Link device" button). Set false to let anyone who can
+  # reach the port edit settings.
+  require_edit_token: true
 
 # Optional: identity lines printed in the ISP evidence report header.
 # Leave out (or blank) to get fill-in-by-hand lines instead.

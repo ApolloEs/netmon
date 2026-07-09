@@ -43,6 +43,10 @@ class DatabaseConfig:
 class DashboardConfig:
     host: str
     port: int
+    # When True, non-localhost devices are read-only until enrolled via
+    # the QR flow (see netmon/deviceauth.py). Docker preset sets False —
+    # inside a container no request ever looks like localhost.
+    require_edit_token: bool = True
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,9 @@ def _from_raw(raw: dict) -> Config:
             dashboard=DashboardConfig(
                 host=raw["dashboard"]["host"],
                 port=raw["dashboard"]["port"],
+                require_edit_token=bool(
+                    raw["dashboard"].get("require_edit_token", True)
+                ),
             ),
             logging=LoggingConfig(
                 level=lg.get("level", "INFO"),

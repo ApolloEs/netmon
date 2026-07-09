@@ -47,6 +47,20 @@ During active development, prefer stopping the service and running
 - The service runs `python -m netmon.main` with the repo as working
   directory, so `config.yaml` is found exactly as in manual runs.
 
+## LAN / phone access
+
+To reach the dashboard from other devices (see "View from your phone" in
+the main README): set `dashboard.host: 0.0.0.0` in config.yaml, then in
+an **elevated** PowerShell:
+
+```powershell
+netsh advfirewall firewall add rule name="LineProof Dashboard" dir=in action=allow protocol=TCP localport=5000 remoteip=localsubnet
+Restart-Service NetMon
+```
+
+(`remoteip=localsubnet` keeps the rule LAN-only. Remove it later with
+`netsh advfirewall firewall delete rule name="LineProof Dashboard"`.)
+
 ## Notes
 
 - Postgres must be running as a service too (the standard PG installer

@@ -38,8 +38,11 @@
       <span id="last-updated" class="dim">—</span>
       <button id="theme-toggle" class="btn btn-icon" title="Toggle light/dark theme">☀</button>
       <a class="btn" href="/report" target="_blank" title="Generate the ISP evidence report">📄 Report</a>
-      <button id="run-test" class="btn" title="Run a speed test now (bypasses postpone logic)">▶ Run test</button>
-      <button id="settings-open" class="btn btn-icon" title="Settings">⚙</button>
+      {% if can_enroll %}
+      <button id="enroll-open" class="btn" title="Link a phone or tablet to this dashboard">Link device</button>
+      {% endif %}
+      <button id="run-test" class="btn{% if not can_edit %} hidden{% endif %}" title="Run a speed test now (bypasses postpone logic)">▶ Run test</button>
+      <button id="settings-open" class="btn btn-icon{% if not can_edit %} hidden{% endif %}" title="Settings">⚙</button>
     </div>
   </header>
 
@@ -218,10 +221,35 @@
     </div>
   </div>
 
+  {% if can_enroll %}
+  <!-- ── Phone Enrollment Modal (PC view only) ─────────────────────── -->
+  <div id="enroll-overlay" class="modal-overlay hidden">
+    <div class="modal modal--narrow">
+      <div class="modal-header">
+        <h2>View on your phone</h2>
+        <button id="enroll-close" class="btn btn-icon" title="Close">✕</button>
+      </div>
+      <p class="dim small">
+        Scan with your phone on the same Wi-Fi. Opening the link enrolls
+        that device for editing — the code works once and expires after
+        10 minutes (reopen this dialog for a fresh one).
+      </p>
+      <div id="enroll-qr" class="enroll-qr"><span class="dim">Generating…</span></div>
+      <p id="enroll-url" class="enroll-url dim small"></p>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Vendored locally: the dashboard must render during outages. -->
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <script>const TARGET_MBPS = {{ target_mbps }};</script>
+  {% if can_enroll %}
+  <script src="/static/vendor/qrcode.min.js"></script>
+  {% endif %}
+  <script>
+    const TARGET_MBPS = {{ target_mbps }};
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+  </script>
   <script src="/static/app.js"></script>
 </body>
 </html>

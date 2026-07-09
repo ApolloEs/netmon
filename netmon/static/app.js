@@ -159,7 +159,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   initRunTest();
   initChartRanges();
   initTheme();
+  initEnroll();
 });
+
+
+// ── Phone enrollment (QR) — button exists only on the PC/localhost view ──
+function initEnroll() {
+  const openBtn = document.getElementById('enroll-open');
+  if (!openBtn) return;
+  const overlay = document.getElementById('enroll-overlay');
+  openBtn.addEventListener('click', openEnroll);
+  document.getElementById('enroll-close').addEventListener('click', () => {
+    overlay.classList.add('hidden');
+  });
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.add('hidden');
+  });
+}
+
+async function openEnroll() {
+  const overlay = document.getElementById('enroll-overlay');
+  const qrEl = document.getElementById('enroll-qr');
+  const urlEl = document.getElementById('enroll-url');
+  overlay.classList.remove('hidden');
+  qrEl.innerHTML = '<span class="dim">Generating…</span>';
+  urlEl.textContent = '';
+
+  let data = null;
+  try {
+    const resp = await fetch('/api/enroll-token', { method: 'POST' });
+    data = await resp.json();
+  } catch (e) { /* handled below */ }
+
+  if (!data || !data.ok) {
+    qrEl.innerHTML = '<span class="dim">Could not generate the code'
+      + (data && data.error ? ': ' + data.error : '.') + '</span>';
+    return;
+  }
+  const qr = qrcode(0, 'M');
+  qr.addData(data.url);
+  qr.make();
+  qrEl.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+  urlEl.textContent = data.url;
+}
 
 
 // ── Status strip ─────────────────────────────────────────────────────

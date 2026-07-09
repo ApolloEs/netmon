@@ -113,6 +113,23 @@ Tables are created and migrated automatically at startup
 Dashboard: <http://127.0.0.1:5000> · Evidence report: the **📄 Report**
 button, or `python scripts/generate_report.py --days 30`.
 
+### View from your phone
+
+1. In `config.yaml`, set `dashboard.host: 0.0.0.0` and restart.
+2. Allow the port through the firewall, LAN-only (elevated PowerShell on
+   Windows):
+   ```powershell
+   netsh advfirewall firewall add rule name="LineProof Dashboard" dir=in action=allow protocol=TCP localport=5000 remoteip=localsubnet
+   ```
+3. On the PC's dashboard, click **Link device** and scan the QR with your phone
+   (same Wi-Fi). That opens the dashboard *and* enrolls the phone for
+   editing via a cookie.
+
+Devices that haven't scanned the QR get a **read-only** dashboard —
+live charts and reports, but no settings/restart/run-test. The QR link
+is single-use and expires after 10 minutes; to revoke all enrolled
+devices, delete the auto-generated `.dashboard-secret` file and restart.
+
 ## Run it as a service
 
 - **Windows**: [`deploy/windows/`](deploy/windows/README.md) — install script
@@ -150,13 +167,17 @@ and [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the honest list of rough edges.
 
 ## Security / trust model
 
-The dashboard has **no authentication** — by design, for a single-user
-tool on a home machine. The default bind is `127.0.0.1`, which keeps it
-local. If you bind to a LAN address or run the Docker stack (which
-publishes the port), anyone with network access can view your data,
-**change monitoring settings, and trigger restarts**. If that matters on
-your network, put it behind a reverse proxy with authentication; don't
-expose it to the internet as-is.
+Designed for a single household, not the open internet. The default bind
+is `127.0.0.1` (local only). When bound to the LAN, other devices get a
+**read-only** dashboard — they can see all your data (including the
+evidence report with any identity lines you configured) but can't change
+settings, restart monitoring, or trigger tests unless enrolled by
+scanning the QR from the PC (`dashboard.require_edit_token: true`, the
+default; the Docker preset disables it and publishes the port
+loopback-only instead). Traffic is plain HTTP — nothing is encrypted on
+the wire — and the enrollment cookie is only as private as your Wi-Fi.
+Don't expose it to the internet as-is; use a reverse proxy with
+authentication and TLS if you need remote access.
 
 ## Roadmap
 

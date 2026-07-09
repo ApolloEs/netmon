@@ -17,12 +17,16 @@ env/
 # Config with secrets — use config.example.yaml as a template
 config.yaml
 
+# Auto-generated dashboard device-enrollment secret
+.dashboard-secret
+
 # IDE
 .vscode/
 .idea/
 
-# Logs
+# Logs (including rotated netmon.log.1 …)
 *.log
+*.log.*
 logs/
 
 # Generated evidence reports

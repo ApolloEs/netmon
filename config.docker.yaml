@@ -30,6 +30,11 @@ database:
 dashboard:
   host: 0.0.0.0            # container-internal; reachability is decided by `ports`
   port: 5000
+  # QR enrollment needs a localhost request, which never happens inside a
+  # container (everything arrives via the Docker bridge) — so edit rights
+  # are open here. The compose file publishes the port loopback-only by
+  # default, which is what actually limits who can reach it.
+  require_edit_token: false
 
 logging:
   level: INFO

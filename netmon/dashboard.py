@@ -5,12 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import socket
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import (
+    Flask, Response, jsonify, redirect, render_template, request,
+    stream_with_context,
+)
 
 from netmon import config as cfg
 from netmon import events, jobs, pinger, queries, report as report_mod, speed_test
+from netmon.deviceauth import DeviceAuth
 from netmon.runtime import Runtime
 
 log = logging.getLogger(__name__)
@@ -40,6 +45,19 @@ def _settings_snapshot(conf: cfg.Config) -> dict:
     }
 
 
+def _lan_ip() -> str:
+    """This machine's LAN IP — routing lookup only, no packets sent."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    finally:
+        s.close()
+
+
+DEVICE_COOKIE = "lineproof_device"
+
+
 def create_app(rt: Runtime) -> Flask:
     app = Flask(
         __name__,
@@ -50,13 +68,81 @@ def create_app(rt: Runtime) -> Flask:
     # Suppress Flask request logs — APScheduler logs are enough noise.
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
+    # ------------------------------------------------------------------
+    # Device trust: localhost always edits; LAN devices are read-only
+    # until enrolled by scanning the QR minted on the PC view.
+    # ------------------------------------------------------------------
+
+    auth = DeviceAuth(cfg.CONFIG_PATH.parent / ".dashboard-secret")
+
+    def _is_local() -> bool:
+        return request.remote_addr in ("127.0.0.1", "::1")
+
+    def _binds_lan() -> bool:
+        # Only meaningful to enroll another device when the dashboard is
+        # actually reachable from the LAN — a loopback bind serves nothing
+        # to the phone, so the enrolled URL would go nowhere.
+        return rt.conf.dashboard.host not in ("127.0.0.1", "localhost", "::1")
+
+    def _can_edit() -> bool:
+        if not rt.conf.dashboard.require_edit_token:
+            return True
+        return _is_local() or auth.is_trusted(request.cookies.get(DEVICE_COOKIE))
+
+    def _read_only_response():
+        return jsonify({
+            "ok": False,
+            "error": "This device is read-only. Open LineProof on the PC "
+                     "and use the 'Link device' button to enable editing.",
+        }), 403
+
     @app.route("/")
     def index():
         return render_template(
             "index.html",
             target_mbps=rt.conf.target_mbps,
             settings=_settings_snapshot(rt.conf),
+            can_edit=_can_edit(),
+            can_enroll=(
+                _is_local()
+                and rt.conf.dashboard.require_edit_token
+                and _binds_lan()
+            ),
         )
+
+    @app.route("/api/enroll-token", methods=["POST"])
+    def api_enroll_token():
+        if not _is_local():
+            return jsonify({
+                "ok": False,
+                "error": "The enrollment QR can only be generated on the "
+                         "PC running LineProof.",
+            }), 403
+        token = auth.mint_token()
+        try:
+            host = _lan_ip()
+        except OSError:
+            host = request.host.split(":")[0]
+            log.warning("Could not determine LAN IP; QR will use %s", host)
+        url = f"http://{host}:{rt.conf.dashboard.port}/enroll?token={token}"
+        return jsonify({"ok": True, "url": url})
+
+    @app.route("/enroll")
+    def enroll():
+        secret = auth.redeem(request.args.get("token", ""))
+        if secret is None:
+            return (
+                "<h3>QR code expired or already used</h3>"
+                "<p>Generate a fresh one with the 'Link device' button on the PC.</p>",
+                403,
+            )
+        resp = redirect("/")
+        resp.set_cookie(
+            DEVICE_COOKIE, secret,
+            max_age=365 * 24 * 3600, httponly=True, samesite="Lax",
+        )
+        log.info("Device enrolled for dashboard editing (from %s).", request.remote_addr)
+        return resp
 
     # ------------------------------------------------------------------
     # REST endpoints
@@ -129,6 +215,8 @@ def create_app(rt: Runtime) -> Flask:
 
     @app.route("/api/settings", methods=["POST"])
     def api_settings_post():
+        if not _can_edit():
+            return _read_only_response()
         updates = request.get_json(silent=True)
         if not isinstance(updates, dict):
             return jsonify({"ok": False, "error": "Invalid JSON body."}), 400
@@ -141,6 +229,8 @@ def create_app(rt: Runtime) -> Flask:
 
     @app.route("/api/restart", methods=["POST"])
     def api_restart():
+        if not _can_edit():
+            return _read_only_response()
         if rt.scheduler is None:
             return jsonify({
                 "ok": False,
@@ -204,6 +294,8 @@ def create_app(rt: Runtime) -> Flask:
 
     @app.route("/api/speed-test/run", methods=["POST"])
     def api_run_speed_test():
+        if not _can_edit():
+            return _read_only_response()
         if rt.scheduler is None:
             return jsonify({
                 "ok": False,

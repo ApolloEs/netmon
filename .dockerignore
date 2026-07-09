@@ -1,5 +1,6 @@
 # Secrets stay out of the image — config.yaml is mounted at runtime.
 config.yaml
+.dashboard-secret
 
 .git
 .github
