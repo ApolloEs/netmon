@@ -24,6 +24,12 @@ connectivity:
     - 8.8.8.8
     - google.com
 
+monitoring:
+  # Disabled in Docker: a container sees only its own traffic, not the
+  # host's other apps, so "local usage" would be misleadingly near-zero.
+  # Run bare-metal (or set an explicit interface) for host-load context.
+  interface: none
+
 database:
   url: postgresql://netmon:netmon@postgres:5432/netmon
 

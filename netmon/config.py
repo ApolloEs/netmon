@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import yaml
 
@@ -32,6 +32,21 @@ class ConnectivityConfig:
     # Degraded-period detection: sustained packet loss below outage level.
     degraded_loss_threshold_pct: float = 5.0
     degraded_window_minutes: int = 10
+
+
+@dataclass(frozen=True)
+class MonitoringConfig:
+    """
+    Host-throughput monitoring. `interface` is the internet-facing NIC
+    ("auto" derives it from the default route). The ceilings define the
+    idle/light/loaded load tiers as a percent of contracted capacity;
+    the contracted DOWNLOAD denominator is the top-level `target_mbps`
+    (not duplicated here). `contracted_up_mbps` is the only new capacity.
+    """
+    interface: str = "auto"
+    contracted_up_mbps: Optional[float] = None
+    idle_ceiling_pct: float = 5.0
+    light_ceiling_pct: float = 25.0
 
 
 @dataclass(frozen=True)
@@ -80,6 +95,7 @@ class Config:
     dashboard: DashboardConfig
     logging: LoggingConfig
     report: ReportConfig
+    monitoring: MonitoringConfig
 
 
 def _validate(conf: Config) -> None:
@@ -111,6 +127,15 @@ def _validate(conf: Config) -> None:
         errors.append("connectivity.degraded_window_minutes must be >= 1")
     if not (1 <= conf.dashboard.port <= 65535):
         errors.append(f"dashboard.port must be 1-65535 (got {conf.dashboard.port})")
+    mon = conf.monitoring
+    if not (0 < mon.idle_ceiling_pct < mon.light_ceiling_pct <= 100):
+        errors.append(
+            "monitoring load tiers must satisfy 0 < idle_ceiling_pct < "
+            f"light_ceiling_pct <= 100 (got idle={mon.idle_ceiling_pct}, "
+            f"light={mon.light_ceiling_pct})"
+        )
+    if mon.contracted_up_mbps is not None and mon.contracted_up_mbps <= 0:
+        errors.append("monitoring.contracted_up_mbps must be > 0 when set")
     if errors:
         raise ValueError("Invalid config:\n  - " + "\n  - ".join(errors))
 
@@ -123,6 +148,7 @@ def _from_raw(raw: dict) -> Config:
     try:
         lg = raw.get("logging", {})
         rp = raw.get("report") or {}
+        mon = raw.get("monitoring") or {}
         conf = Config(
             target_mbps=raw["target_mbps"],
             speed_test=SpeedTestConfig(
@@ -160,6 +186,12 @@ def _from_raw(raw: dict) -> Config:
                 account_number=rp.get("account_number", ""),
                 isp_name=rp.get("isp_name", ""),
                 plan_name=rp.get("plan_name", ""),
+            ),
+            monitoring=MonitoringConfig(
+                interface=str(mon.get("interface", "auto") or "auto"),
+                contracted_up_mbps=mon.get("contracted_up_mbps"),
+                idle_ceiling_pct=mon.get("idle_ceiling_pct", 5.0),
+                light_ceiling_pct=mon.get("light_ceiling_pct", 25.0),
             ),
         )
     except KeyError as exc:

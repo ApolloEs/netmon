@@ -23,7 +23,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from waitress import serve as waitress_serve
 
-from netmon import cleanup, config as cfg, db, jobs, outage_detector, pinger
+from netmon import cleanup, config as cfg, db, jobs, outage_detector, pinger, throughput
 from netmon.dashboard import create_app
 from netmon.runtime import Runtime
 from netmon.utils import now, setup_logging
@@ -139,6 +139,21 @@ def main() -> None:
 
     rt.pinger_state = pinger.restore_state(engine, targets)
     rt.targets = targets
+
+    # ── Host-throughput interface ────────────────────────────────────
+    # A wrong interface would silently report ~0 Mbps and make every
+    # report falsely claim "measured while idle" — so if we can't derive
+    # the internet-facing NIC, the feature stays disabled (annotations
+    # absent, never wrong).
+    iface = throughput.resolve_interface(conf.monitoring.interface)
+    if iface:
+        source = "from config" if conf.monitoring.interface.lower() != "auto" else "auto-detected"
+        log.info("Monitoring host throughput on interface: %s (%s)", iface, source)
+    else:
+        log.warning(
+            "Host-throughput disabled: could not determine the internet-facing "
+            "interface. Set monitoring.interface explicitly to enable it."
+        )
 
     # ── Dashboard thread ─────────────────────────────────────────────
     # waitress instead of Flask's dev server: production-grade, works on

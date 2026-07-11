@@ -18,6 +18,17 @@ connectivity:
     - 8.8.8.8
     - gateway              # resolved at runtime by the pinger
 
+monitoring:
+  # Host-throughput monitoring: records how busy THIS machine was during
+  # each measurement, as a % of contracted capacity — so the report can
+  # show low speeds happened while local usage was near zero.
+  interface: auto          # "auto" = the NIC carrying the default route;
+                           # or set an explicit name (see the startup log
+                           # for the detected one) if auto picks wrong.
+  # contracted_up_mbps: 10 # optional; contracted download is target_mbps above
+  idle_ceiling_pct: 5      # < this % of capacity = "idle" (strongest evidence)
+  light_ceiling_pct: 25    # 5–25% = "light"; above = "loaded"
+
 database:
   url: postgresql://netmon:yourpassword@localhost:5432/netmon
 

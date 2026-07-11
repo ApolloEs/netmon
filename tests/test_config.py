@@ -54,6 +54,9 @@ def test_optional_sections_get_defaults(raw):
     (lambda r: r["connectivity"].update(degraded_window_minutes=0), "degraded_window"),
     (lambda r: r["dashboard"].update(port=0), "port"),
     (lambda r: r["dashboard"].update(port=70000), "port"),
+    (lambda r: r.__setitem__("monitoring", {"idle_ceiling_pct": 30, "light_ceiling_pct": 25}), "load tiers"),
+    (lambda r: r.__setitem__("monitoring", {"idle_ceiling_pct": 0}), "load tiers"),
+    (lambda r: r.__setitem__("monitoring", {"contracted_up_mbps": 0}), "contracted_up_mbps"),
 ])
 def test_invalid_values_rejected(raw, mutate, match):
     bad = copy.deepcopy(raw)
