@@ -1,40 +1,44 @@
 /* ── Reset & base ───────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* "Neon Circuit" palette — deep violet-black surfaces, cyan primary,
+   violet secondary. Chart/canvas colors live in app.js THEMES; keep in sync. */
 :root {
-  --bg:        #0d1117;
-  --card:      #161b22;
-  --border:    #30363d;
-  --text:      #e6edf3;
-  --dim:       #8b949e;
-  --online:    #3fb950;
-  --offline:   #f85149;
-  --degraded:  #d29922;
-  --unknown:   #6e7681;
-  --blue:      #58a6ff;
-  --green:     #3fb950;
-  --accent:    #1f6feb;
-  --banner-bg:   #3a0000;
-  --banner-text: #ff8080;
-  --tile-label:  rgba(230, 237, 243, 0.55);
+  --bg:        #0a0716;
+  --card:      #130e24;
+  --border:    #2e2452;
+  --text:      #ece8fa;
+  --dim:       #9a90c0;
+  --online:    #2fb36c;
+  --offline:   #ef5368;
+  --degraded:  #cf9420;
+  --unknown:   #6f6a8a;
+  --blue:      #1096bd;
+  --green:     #2fb36c;
+  --accent:    #1096bd;
+  --host:      #c449bd;
+  --banner-bg:   #380f1c;
+  --banner-text: #ff8fa3;
+  --tile-label:  rgba(236, 232, 250, 0.6);
 }
 
 :root[data-theme="light"] {
-  --bg:        #f6f8fa;
+  --bg:        #f4f2fc;
   --card:      #ffffff;
-  --border:    #d0d7de;
-  --text:      #1f2328;
-  --dim:       #57606a;
-  --online:    #1a7f37;
-  --offline:   #cf222e;
-  --degraded:  #9a6700;
-  --unknown:   #6e7781;
-  --blue:      #0969da;
-  --green:     #1a7f37;
-  --accent:    #0969da;
-  --banner-bg:   #ffebe9;
-  --banner-text: #cf222e;
-  --tile-label:  rgba(255, 255, 255, 0.85);
+  --border:    #e3ddf5;
+  --text:      #201a35;
+  --dim:       #655e82;
+  --online:    #148a51;
+  --offline:   #d03b3b;
+  --degraded:  #a06e00;
+  --unknown:   #8b85a3;
+  --blue:      #0f93b3;
+  --green:     #148a51;
+  --accent:    #0f93b3;
+  --host:      #b32bb0;
+  --banner-bg:   #fdecf3;
+  --banner-text: #ab2456;
+  --tile-label:  rgba(255, 255, 255, 0.92);
 }
 
 html, body {
@@ -153,7 +157,7 @@ main {
 .range-btn.active {
   color: var(--text);
   border-color: var(--accent);
-  background: rgba(31, 111, 235, 0.15);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 /* ── Adherence ──────────────────────────────────────────────────── */
@@ -201,8 +205,8 @@ main {
 
 /* Hostname-only outage: the connection was fine, a specific site/DNS
    was not — visually secondary to real connection events. */
-.outage-item--host { border-left: 3px solid #a371f7; }
-.outage-item--host strong { color: #a371f7; font-weight: 600; }
+.outage-item--host { border-left: 3px solid var(--host); }
+.outage-item--host strong { color: var(--host); font-weight: 600; }
 
 /* Degraded period: line up but drowning in packet loss. */
 .outage-item--degraded { border-left: 3px solid var(--degraded); }
@@ -286,8 +290,8 @@ main {
   cursor: default;
 }
 .gantt-bar--conn { background: var(--offline); }
-.gantt-bar--host { background: #a371f7; }
-.gantt-bar--deg  { background: rgba(210, 153, 34, 0.65); }
+.gantt-bar--host { background: var(--host); }
+.gantt-bar--deg  { background: color-mix(in srgb, var(--degraded) 65%, transparent); }
 
 .gantt-tick {
   position: absolute;

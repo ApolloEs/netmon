@@ -5,22 +5,26 @@
 // (charts, heatmap/calendar palettes, canvas bands) reads this palette.
 const THEMES = {
   dark: {
-    chartText: '#8b949e', grid: '#21262d', gridMajor: '#3d444d',
-    dl: '#58a6ff', dlFill: 'rgba(88,166,255,0.08)', ul: '#3fb950', median: '#e3b341',
-    p95Fill: 'rgba(210,153,34,0.16)',
-    outageBand: 'rgba(248,81,73,0.16)', degradedBand: 'rgba(210,153,34,0.14)',
-    noData: 'rgba(139,148,158,0.07)', noDataText: 'rgba(139,148,158,0.4)',
-    loss: { nodata: '#1e2432', clean: '#0d2b0d', trace: '#2b2200', mid: '#3a1a00', bad: '#3a0a00', severe: '#3a0000' },
-    cal: ['#1f6f38', '#5a7d2a', '#8a6d1f', '#8a4a1f', '#8a2525'], calEmpty: '#1e2432',
+    chartText: '#9a90c0', grid: '#201943', gridMajor: '#322a5e',
+    dl: '#1096bd', dlFill: 'rgba(16,150,189,0.12)', ul: '#8878e0', median: '#c08a1e',
+    p95Fill: 'rgba(192,138,30,0.16)',
+    outageBand: 'rgba(239,83,104,0.16)', degradedBand: 'rgba(207,148,32,0.14)',
+    noData: 'rgba(154,144,192,0.07)', noDataText: 'rgba(154,144,192,0.4)',
+    target: '#ef5368', local: '#c449bd',
+    events: { postponed: '#c08a1e', skipped: '#6f6a8a', forced: '#8878e0', error: '#ef5368' },
+    loss: { nodata: '#1a1430', clean: '#11291d', trace: '#2b2408', mid: '#382312', bad: '#3c150e', severe: '#45090c' },
+    cal: ['#1f7a4c', '#5d7d2e', '#8a6d1f', '#96521f', '#9d2f31'], calEmpty: '#1a1430',
   },
   light: {
-    chartText: '#57606a', grid: '#e8ecef', gridMajor: '#c8d1d9',
-    dl: '#0969da', dlFill: 'rgba(9,105,218,0.07)', ul: '#1a7f37', median: '#9a6700',
-    p95Fill: 'rgba(154,103,0,0.15)',
-    outageBand: 'rgba(207,34,46,0.10)', degradedBand: 'rgba(154,103,0,0.12)',
-    noData: 'rgba(110,118,129,0.08)', noDataText: 'rgba(110,118,129,0.55)',
-    loss: { nodata: '#eff2f5', clean: '#dafbe1', trace: '#fff8c5', mid: '#ffd8b5', bad: '#ffb8a5', severe: '#ff9492' },
-    cal: ['#2da44e', '#96bf4b', '#d4a72c', '#e16f24', '#cf222e'], calEmpty: '#eaeef2',
+    chartText: '#655e82', grid: '#efeaf9', gridMajor: '#d8cff0',
+    dl: '#0f93b3', dlFill: 'rgba(15,147,179,0.08)', ul: '#7048e8', median: '#b87f00',
+    p95Fill: 'rgba(184,127,0,0.15)',
+    outageBand: 'rgba(208,59,59,0.10)', degradedBand: 'rgba(160,110,0,0.12)',
+    noData: 'rgba(101,94,130,0.08)', noDataText: 'rgba(101,94,130,0.55)',
+    target: '#d03b3b', local: '#b32bb0',
+    events: { postponed: '#b87f00', skipped: '#8b85a3', forced: '#7048e8', error: '#d03b3b' },
+    loss: { nodata: '#efecf7', clean: '#dcf2e7', trace: '#fdf3cf', mid: '#fbdcb7', bad: '#f8bfad', severe: '#f29d9d' },
+    cal: ['#16a05c', '#8fbf4d', '#d9a72c', '#e1782e', '#d03b3b'], calEmpty: '#e9e5f2',
   },
 };
 
@@ -212,7 +216,7 @@ async function loadStatus() {
 
 // ── Title & favicon reflect live status ──────────────────────────────
 const STATUS_COLORS_UI = {
-  online: '#3fb950', degraded: '#d29922', offline: '#f85149', unknown: '#6e7681',
+  online: '#2fb36c', degraded: '#cf9420', offline: '#ef5368', unknown: '#8a84a0',
 };
 
 function statusFavicon(color) {
@@ -348,13 +352,8 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
     x: r.timestamp, y: r.local_down_mbps != null ? round1(r.local_down_mbps) : null,
   })));
 
-  // Annotation scatter datasets (postponed / skipped / error / forced)
-  const STATUS_COLORS = {
-    postponed: '#d29922',
-    skipped:   '#6e7681',
-    forced:    '#a371f7',
-    error:     '#f85149',
-  };
+  // Annotation scatter datasets (postponed / skipped / forced / error)
+  const STATUS_COLORS = theme().events;
   const annotationDatasets = Object.entries(STATUS_COLORS).map(([status, color]) => ({
     label: status.charAt(0).toUpperCase() + status.slice(1),
     type: 'scatter',
@@ -420,7 +419,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           data: dlData.length
             ? [{ x: dlData[0].x, y: targetMbps }, { x: dlData[dlData.length - 1].x, y: targetMbps }]
             : [],
-          borderColor: '#f85149',
+          borderColor: T.target,
           borderWidth: 1.5,
           borderDash: [6, 4],
           pointRadius: 0,
@@ -438,7 +437,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
         {
           label: 'Local usage',
           data: localData,
-          borderColor: '#a371f7',
+          borderColor: T.local,
           backgroundColor: 'transparent',
           borderWidth: 1.5,
           borderDash: [2, 3],
@@ -936,8 +935,8 @@ function renderGantt(rows, degraded) {
       `<div class="gantt-axis">${axis}</div></div>` +
     `<div class="gantt-caption dim small">last 7 days — ` +
       `<span class="cal-chip" style="background:var(--offline)"></span> outage ` +
-      `<span class="cal-chip" style="background:rgba(210,153,34,0.8)"></span> degraded` +
-      `${host.length ? ' <span class="cal-chip" style="background:#a371f7"></span> host check' : ''}</div>`;
+      `<span class="cal-chip" style="background:color-mix(in srgb, var(--degraded) 80%, transparent)"></span> degraded` +
+      `${host.length ? ' <span class="cal-chip" style="background:var(--host)"></span> host check' : ''}</div>`;
 
   if (!el.dataset.tooltipBound) {
     attachTooltip(el, '.gantt-bar', ganttTipHtml);
