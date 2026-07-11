@@ -67,7 +67,7 @@ def cycle(monkeypatch):
     monkeypatch.setattr(speed_test, "_write_result", lambda engine, data, target, load: 42)
     monkeypatch.setattr(speed_test, "_run_speedtest_with_retry", lambda cli: OOKLA_JSON)
 
-    def run(dl_now, force=False, retry_count=0, conf_over=None, cli_raises=False):
+    def run(dl_now, force=False, retry_count=0, conf_over=None, cli_raises=False, sampler=None):
         monkeypatch.setattr(speed_test, "sample_bandwidth", lambda interval_seconds: (dl_now, 0.0))
         if cli_raises:
             def boom(cli):
@@ -77,11 +77,31 @@ def cycle(monkeypatch):
             target_mbps=100.0, speed_test=st_conf(**(conf_over or {})),
             monitoring=SimpleNamespace(idle_ceiling_pct=5.0, light_ceiling_pct=25.0),
         )
-        return speed_test.run(engine=None, conf=conf, force=force, retry_count=retry_count)
+        return speed_test.run(
+            engine=None, conf=conf, force=force, retry_count=retry_count, sampler=sampler,
+        )
 
     run.events = events
     return run
 
+
+class FakeSampler:
+    """A sampler with a fixed utilization, for exercising the measured path."""
+    def __init__(self, util_pct):
+        self._util = util_pct
+        self._down = (util_pct or 0) / 100 * 100.0  # Mbps at 100 Mbps capacity
+
+    def latest_down_mbps(self):
+        return self._down
+
+    def latest_up_mbps(self):
+        return 1.0
+
+    def recent_utilization(self, contracted_down):
+        return self._util
+
+
+# --- Legacy fallback path (no sampler): download-vs-threshold ------------
 
 def test_idle_line_completes(cycle):
     assert cycle(dl_now=5.0) == ("completed", 42)
@@ -129,3 +149,41 @@ def test_concurrent_run_reports_busy(cycle):
     with speed_test._run_lock:
         assert cycle(dl_now=5.0) == ("busy", None)
     assert speed_test.is_running() is False
+
+
+# --- Measured path (sampler present): utilization-based ------------------
+
+def test_measured_idle_completes(cycle):
+    # 2% of capacity = idle → run normally.
+    assert cycle(dl_now=0, sampler=FakeSampler(2.0)) == ("completed", 42)
+    assert cycle.events[-1][0] == "completed"
+
+
+def test_measured_light_completes(cycle):
+    # 15% = light → still usable, runs (caveated by the stored load_tier).
+    assert cycle(dl_now=0, sampler=FakeSampler(15.0)) == ("completed", 42)
+
+
+def test_measured_loaded_postpones(cycle):
+    # 40% = loaded, budget remains → postpone with a utilization reason.
+    assert cycle(dl_now=0, sampler=FakeSampler(40.0)) == ("postponed", None)
+    assert cycle.events[-1][0] == "postponed"
+    assert "of capacity (loaded)" in cycle.events[-1][1]["reason"]
+
+
+def test_measured_loaded_never_skips_only_postpones(cycle):
+    # Even very high local use postpones (retries remain) — never a silent skip.
+    assert cycle(dl_now=0, sampler=FakeSampler(300.0)) == ("postponed", None)
+
+
+def test_measured_loaded_exhausted_forces_and_labels(cycle):
+    # Loaded but out of postpones → force-run, labelled as compromised.
+    assert cycle(dl_now=0, retry_count=3, sampler=FakeSampler(40.0)) == ("forced", 42)
+    ev = cycle.events[-1]
+    assert ev[0] == "forced"
+    assert "under load" in ev[1]["reason"] and "loaded" in ev[1]["reason"]
+
+
+def test_measured_empty_window_falls_back_to_legacy(cycle):
+    # Sampler present but no reading yet (util None) → legacy threshold path.
+    assert cycle(dl_now=90.0, sampler=FakeSampler(None)) == ("skipped", None)

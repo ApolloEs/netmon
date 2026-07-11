@@ -216,13 +216,27 @@ def _run_cycle(
         conf.monitoring.idle_ceiling_pct, conf.monitoring.light_ceiling_pct,
     )
 
-    log.info("Sampling bandwidth before speed test...")
-    dl_now, _ = sample_bandwidth(interval_seconds=5)
-    log.info("Current download: %.2f Mbps (target: %.0f Mbps)", dl_now, conf.target_mbps)
+    # Decide whether to run now. With measured host throughput the decision
+    # is utilization-based — postpone while the line is loaded, force-run once
+    # postpones are exhausted (a labelled, caveated measurement beats a blind
+    # spot; there is no silent "skip"). Without a usable sample yet, fall back
+    # to the legacy pre-test bandwidth sample + threshold check.
+    if force:
+        decision, dl_now = "proceed", load.down_mbps
+    elif load.tier is not None:
+        dl_now = load.down_mbps
+        decision = "postpone" if load.tier == "loaded" else "proceed"
+        log.info(
+            "Local usage %.1f%% of contracted capacity (%s).",
+            load.utilization_pct, load.tier,
+        )
+    else:
+        log.info("Sampling bandwidth before speed test (host-throughput not measured)...")
+        dl_now, _ = sample_bandwidth(interval_seconds=5)
+        log.info("Current download: %.2f Mbps (target: %.0f Mbps)", dl_now, conf.target_mbps)
+        decision = _check_thresholds(dl_now, conf.target_mbps, st_conf)
 
-    decision = "proceed" if force else _check_thresholds(dl_now, conf.target_mbps, st_conf)
-
-    if decision == "skip":
+    if decision == "skip":  # legacy fallback path only
         log.warning(
             "Skipping speed test — current use %.2f Mbps exceeds hard threshold (%.0f%% of target).",
             dl_now, st_conf.hard_threshold * 100,
@@ -237,16 +251,20 @@ def _run_cycle(
         return ("skipped", None)
 
     if decision == "postpone" and retry_count < st_conf.max_postpones:
+        reason = (
+            f"local usage {load.utilization_pct:.0f}% of capacity (loaded)"
+            if load.tier is not None
+            else f"current use {dl_now:.2f} Mbps > soft threshold"
+        )
         log.info(
-            "Postponing speed test — current use %.2f Mbps exceeds soft threshold. "
-            "Retry %d/%d in %d min.",
-            dl_now, retry_count + 1, st_conf.max_postpones, st_conf.postpone_retry_minutes,
+            "Postponing speed test — %s. Retry %d/%d in %d min.",
+            reason, retry_count + 1, st_conf.max_postpones, st_conf.postpone_retry_minutes,
         )
         _write_event(
             engine, "postponed",
             scheduled_for=scheduled_for,
             current_throughput_mbps=dl_now,
-            reason=f"current use {dl_now:.2f} Mbps > soft threshold",
+            reason=reason,
             retry_count=retry_count,
         )
         return ("postponed", None)
@@ -254,11 +272,21 @@ def _run_cycle(
     if decision == "postpone":
         log.warning("Forcing speed test after %d postpones — blind spot prevention.", retry_count)
 
-    # "forced": manual run, or we ran despite high bandwidth after
-    # exhausting postpones (decision == "postpone").
-    # "completed" for all normal runs, including max_postpones == 0.
+    # "forced": manual run, or ran under load after exhausting postpones — a
+    # compromised measurement, labelled so it is never published as clean.
+    # "completed" for normal runs (idle/light, or max_postpones == 0).
     status = "forced" if (force or decision == "postpone") else "completed"
-    reason = "manual run from dashboard" if force else None
+    if force:
+        reason = "manual run from dashboard"
+    elif decision == "postpone":
+        reason = (
+            f"forced after {retry_count} postpones under load "
+            f"({load.tier}, {load.utilization_pct:.0f}% of capacity)"
+            if load.tier is not None
+            else f"forced after {retry_count} postpones"
+        )
+    else:
+        reason = None
     log.info("Running speed test (status will be: %s)...", status)
 
     try:
