@@ -193,6 +193,34 @@ class ThroughputSampler:
         while self.window and self.window[0][0] < cutoff:
             self.window.popleft()
 
+    def latest_down_mbps(self) -> Optional[float]:
+        """Most recent measured download rate, or None if none yet."""
+        return self.window[-1][1] if self.window else None
+
+    def latest_up_mbps(self) -> Optional[float]:
+        return self.window[-1][2] if self.window else None
+
+    def recent_utilization(self, contracted_down_mbps: float) -> Optional[float]:
+        """Latest local download as a percent of contracted capacity."""
+        down = self.latest_down_mbps()
+        if down is None or contracted_down_mbps <= 0:
+            return None
+        return down / contracted_down_mbps * 100.0
+
+
+def load_tier(util_pct: Optional[float], idle_ceiling_pct: float, light_ceiling_pct: float) -> Optional[str]:
+    """
+    Bucket a utilization percentage into idle / light / loaded, or None
+    when load wasn't measured (so callers never imply "idle" by default).
+    """
+    if util_pct is None:
+        return None
+    if util_pct < idle_ceiling_pct:
+        return "idle"
+    if util_pct < light_ceiling_pct:
+        return "light"
+    return "loaded"
+
 
 def read_counters(interface: str) -> Optional[tuple[float, int, int]]:
     """Current (wall_ts, bytes_recv, bytes_sent) for the interface, or None."""

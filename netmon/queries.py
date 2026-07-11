@@ -100,6 +100,26 @@ def get_speed_history(engine: Engine, days: int = 30) -> list[dict]:
     return result
 
 
+def demonstrated_best_download(engine: Engine, days: int = 30) -> float | None:
+    """
+    The line's demonstrated-best download = 95th percentile of recent
+    Ookla results. Report *context* only — never the utilization
+    denominator (that's the contracted target_mbps). Deliberately NOT the
+    latest speedtest, which would move with the degradation being measured.
+    """
+    with engine.connect() as conn:
+        best = conn.execute(
+            text("""
+                SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY download_mbps)
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+                  AND download_mbps IS NOT NULL
+            """),
+            {"days": days},
+        ).scalar()
+    return round(best, 1) if best is not None else None
+
+
 def get_test_events(engine: Engine, days: int = 30) -> list[dict]:
     """Test lifecycle events for speed chart annotations (postponed/skipped/forced)."""
     with engine.connect() as conn:
