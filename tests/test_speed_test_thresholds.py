@@ -29,6 +29,19 @@ def st_conf(**overrides):
 # _check_thresholds decision matrix (target 100 Mbps)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("value, expected", [
+    (0.0, 0.0),
+    (94.3, 94.3),
+    (10_000.0, 10_000.0),           # 10 Gbps — plausible, kept
+    (None, None),
+    (-1.0, None),                   # negative is impossible
+    (-73786976294838.2, None),      # the observed INT64_MIN-derived value
+    (1e15, None),                   # absurdly large
+])
+def test_sane_mbps(value, expected):
+    assert speed_test._sane_mbps(value) == expected
+
+
 @pytest.mark.parametrize("dl_mbps, expected", [
     (0.0, "proceed"),
     (49.9, "proceed"),

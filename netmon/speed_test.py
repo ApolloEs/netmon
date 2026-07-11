@@ -59,15 +59,36 @@ def _write_event(
         )
 
 
+# Upper bound for a plausible residential/business line (Mbps). Anything
+# beyond this — or negative — is a malfunctioning Ookla reading, e.g. the
+# INT64_MIN sentinel it emits when it fails to measure a direction.
+_MAX_PLAUSIBLE_MBPS = 100_000
+
+
+def _sane_mbps(value: float | None) -> float | None:
+    """Return the value, or None if it's an impossible speed."""
+    if value is None or value < 0 or value > _MAX_PLAUSIBLE_MBPS:
+        return None
+    return value
+
+
 def _write_result(engine: Engine, data: dict, target_mbps: float, load: LoadContext) -> int:
     """Insert a speed_tests row and return its id."""
     try:
-        dl = data["download"]["bandwidth"] * 8 / 1_000_000
-        ul = data["upload"]["bandwidth"] * 8 / 1_000_000
+        dl = _sane_mbps(data["download"]["bandwidth"] * 8 / 1_000_000)
+        ul = _sane_mbps(data["upload"]["bandwidth"] * 8 / 1_000_000)
         ping = data["ping"]["latency"]
         jitter = data["ping"]["jitter"]
     except KeyError as exc:
         raise RuntimeError(f"Unexpected speedtest JSON structure — missing key {exc}") from exc
+
+    if dl is None or ul is None:
+        log.warning(
+            "Speedtest returned an implausible value (down=%s, up=%s Mbps raw); "
+            "storing NULL for the affected direction.",
+            data["download"]["bandwidth"] * 8 / 1_000_000,
+            data["upload"]["bandwidth"] * 8 / 1_000_000,
+        )
 
     loss = data.get("packetLoss", 0.0)
     server = data.get("server", {})
@@ -83,7 +104,7 @@ def _write_result(engine: Engine, data: dict, target_mbps: float, load: LoadCont
                 jitter_ms=jitter,
                 packet_loss_pct=loss,
                 target_mbps=target_mbps,
-                pct_of_target=round(dl / target_mbps * 100, 1),
+                pct_of_target=round(dl / target_mbps * 100, 1) if dl is not None else None,
                 server_id=str(server.get("id", "")),
                 server_name=server.get("name", ""),
                 download_bytes=data["download"].get("bytes"),

@@ -51,6 +51,15 @@ A record from April stage-testing (before the reconciler fix) has
 window, causes no UI bug. Left in place deliberately — do not delete
 DB rows without an explicit request.
 
+**One speed test has a garbage upload value (2026-07-10 18:53 UTC).**
+During a near-outage (download 0.62 Mbps) the Ookla CLI returned
+`INT64_MIN` (-9223372036854775808) as `upload.bandwidth`, which became
+`upload_mbps = -73786976294838.2`. Future writes are now guarded
+(`speed_test._sane_mbps` stores NULL for impossible values), but this
+existing row was left untouched (no DB edits without an explicit
+request). Visible only in the chart tooltip; the point is clipped by the
+y-axis floor at 0.
+
 ---
 
 ## Raspberry Pi migration (v2)
