@@ -5,13 +5,14 @@
 // (charts, heatmap/calendar palettes, canvas bands) reads this palette.
 const THEMES = {
   dark: {
-    chartText: '#9a90c0', grid: '#201943', gridMajor: '#322a5e',
-    dl: '#1096bd', dlFill: 'rgba(16,150,189,0.12)', ul: '#8878e0', median: '#c08a1e',
+    chartText: '#9a90c0', grid: '#201943', gridMajor: '#3a3170',
+    dl: '#12a0c9', dlFill: 'rgba(18,160,201,0.16)', ul: '#8c7ee8', median: '#c08a1e',
     p95Fill: 'rgba(192,138,30,0.16)',
     outageBand: 'rgba(239,83,104,0.16)', degradedBand: 'rgba(207,148,32,0.14)',
     noData: 'rgba(154,144,192,0.07)', noDataText: 'rgba(154,144,192,0.4)',
-    target: '#ef5368', local: '#c449bd',
-    events: { postponed: '#c08a1e', skipped: '#6f6a8a', forced: '#8878e0', error: '#ef5368' },
+    tipBg: '#1a1332', tipBorder: '#372c63', tipText: '#ece8fa',
+    target: '#ef5368', local: '#d158c9',
+    events: { postponed: '#c08a1e', skipped: '#6f6a8a', forced: '#8c7ee8', error: '#ef5368' },
     loss: { nodata: '#1a1430', clean: '#11291d', trace: '#2b2408', mid: '#382312', bad: '#3c150e', severe: '#45090c' },
     cal: ['#1f7a4c', '#5d7d2e', '#8a6d1f', '#96521f', '#9d2f31'], calEmpty: '#1a1430',
   },
@@ -21,6 +22,7 @@ const THEMES = {
     p95Fill: 'rgba(184,127,0,0.15)',
     outageBand: 'rgba(208,59,59,0.10)', degradedBand: 'rgba(160,110,0,0.12)',
     noData: 'rgba(101,94,130,0.08)', noDataText: 'rgba(101,94,130,0.55)',
+    tipBg: '#ffffff', tipBorder: '#e3ddf5', tipText: '#201a35',
     target: '#d03b3b', local: '#b32bb0',
     events: { postponed: '#b87f00', skipped: '#8b85a3', forced: '#7048e8', error: '#d03b3b' },
     loss: { nodata: '#efecf7', clean: '#dcf2e7', trace: '#fdf3cf', mid: '#fbdcb7', bad: '#f8bfad', severe: '#f29d9d' },
@@ -33,9 +35,26 @@ function theme() {
 }
 
 function applyChartDefaults() {
-  Chart.defaults.color = theme().chartText;
-  Chart.defaults.borderColor = theme().grid;
+  const T = theme();
+  Chart.defaults.color = T.chartText;
+  Chart.defaults.borderColor = T.grid;
   Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  // Tooltips match the card/tooltip chrome instead of Chart.js's black.
+  const tip = Chart.defaults.plugins.tooltip;
+  tip.backgroundColor = T.tipBg;
+  tip.borderColor = T.tipBorder;
+  tip.borderWidth = 1;
+  tip.titleColor = T.tipText;
+  tip.bodyColor = T.tipText;
+  tip.padding = 10;
+  tip.cornerRadius = 8;
+  tip.boxPadding = 4;
+  // Compact legend swatches that mirror each dataset's own style.
+  const leg = Chart.defaults.plugins.legend.labels;
+  leg.usePointStyle = true;
+  leg.boxWidth = 9;
+  leg.boxHeight = 9;
+  leg.padding = 14;
 }
 applyChartDefaults();
 
@@ -408,7 +427,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           data: ulData,
           borderColor: T.ul,
           backgroundColor: 'transparent',
-          borderWidth: 1.5,
+          borderWidth: 2,
           pointRadius: () => speedChartHovered ? 2 : 0,
           pointHoverRadius: 4,
           pointHitRadius: 12,
@@ -475,6 +494,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
         y: {
           title: { display: true, text: 'Mbps' },
           min: 0,
+          ticks: { maxTicksLimit: 6 },
           grid: { color: c => theme().grid },
         },
       },
@@ -696,7 +716,7 @@ function buildLatencyChart(rows) {
           label: 'Average',
           data: smooth3(avg),
           borderColor: T.dl,
-          borderWidth: 1.5,
+          borderWidth: 2,
           pointRadius: 0,
         },
         {
@@ -728,6 +748,7 @@ function buildLatencyChart(rows) {
           min: 0,
           max: yMax,
           title: { display: true, text: 'ms' },
+          ticks: { maxTicksLimit: 6 },
           grid: { color: c => theme().grid },
         },
       },
