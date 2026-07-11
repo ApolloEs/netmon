@@ -652,14 +652,23 @@ main {
   html, body { font-size: 13px; }
 
   .status-strip { padding: 10px 12px; gap: 10px; }
+  /* Three rows: status label / centered buttons / hero + three stats.
+     Hero spans the full grid row; the trio gets exactly three columns. */
   .status-center {
     order: 3;
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
   }
-  .status-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .status-right {
+    order: 2;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    align-items: center;
+  }
   #last-updated { display: none; }
   .stat-value { font-size: 14px; }
   .stat--hero { grid-column: 1 / -1; }
@@ -667,6 +676,15 @@ main {
 
   main { padding: 14px 10px; gap: 14px; }
   .card { padding: 14px; }
+
+  /* Card titles: the parenthetical becomes a subtitle line instead of
+     wrapping mid-sentence. */
+  .card h2 .dim { display: block; font-size: 11px; margin-top: 2px; }
+
+  /* Tighter touch chrome. */
+  .btn { padding: 5px 10px; font-size: 12px; }
+  .btn-icon { padding: 4px 8px; font-size: 14px; }
+  .status-left { font-size: 14px; }
 
   .chart-wrap { height: 220px; }
   .chart-wrap--short { height: 160px; }

@@ -401,6 +401,9 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
   }
 
   const T = theme();
+  // Phone layout: trim the legend to the core series and keep tick
+  // labels horizontal so the plot area isn't eaten by chrome.
+  const compact = window.matchMedia('(max-width: 640px)').matches;
   if (speedChart) speedChart.destroy();
   const ctx = canvas.getContext('2d');
   speedChart = new Chart(ctx, {
@@ -485,6 +488,7 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
             font: c => c.tick && c.tick.major
               ? { weight: 'bold' }
               : {},
+            ...(compact ? { maxRotation: 0 } : {}),
           },
           grid: {
             // Brighter gridline at midnights so days read at a glance.
@@ -499,7 +503,12 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
         },
       },
       plugins: {
-        legend: { position: 'top' },
+        legend: {
+          position: 'top',
+          // First four datasets = Download / Upload / Target / 7d median;
+          // local usage and the event dots stay drawn, just unlisted.
+          labels: compact ? { filter: item => item.datasetIndex < 4, font: { size: 11 } } : {},
+        },
         tooltip: {
           callbacks: {
             label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} Mbps`,
@@ -741,6 +750,7 @@ function buildLatencyChart(rows) {
           ticks: {
             major: { enabled: true },
             font: c => c.tick && c.tick.major ? { weight: 'bold' } : {},
+            ...(window.matchMedia('(max-width: 640px)').matches ? { maxRotation: 0 } : {}),
           },
           grid: { color: c => c.tick && c.tick.major ? theme().gridMajor : theme().grid },
         },
@@ -806,6 +816,28 @@ function attachTooltip(container, selector, htmlGetter) {
     if (el && tooltipEl) tooltipEl.classList.add('hidden');
   });
 }
+
+// Touch screens: hover tooltips otherwise stick after the finger lifts
+// (pointerout never fires for a tap). A tap outside any tooltip target —
+// or scrolling — clears both the custom tooltip and the Chart.js ones.
+const TIP_TARGETS = '.cal-day, .gantt-bar, td[data-target]';
+
+function dismissTooltips(e) {
+  const target = e && e.target instanceof Element ? e.target : null;
+  if (tooltipEl && !(target && target.closest(TIP_TARGETS))) {
+    tooltipEl.classList.add('hidden');
+  }
+  for (const ch of [speedChart, latencyChart]) {
+    if (!ch || (target && ch.canvas.contains(target))) continue;
+    if (ch.getActiveElements().length) {
+      ch.setActiveElements([]);
+      ch.tooltip.setActiveElements([], { x: 0, y: 0 });
+      ch.update('none');
+    }
+  }
+}
+document.addEventListener('pointerdown', dismissTooltips, { passive: true });
+window.addEventListener('scroll', () => dismissTooltips(), { passive: true });
 
 
 // ── Daily quality calendar ────────────────────────────────────────────
