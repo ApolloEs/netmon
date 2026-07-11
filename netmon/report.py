@@ -39,6 +39,7 @@ def render_report(engine: Engine, conf: cfg.Config, days: int = 30) -> str:
         "interval_hours": conf.speed_test.interval_hours,
         "degraded_loss_threshold_pct": conf.connectivity.degraded_loss_threshold_pct,
         "degraded_window_minutes": conf.connectivity.degraded_window_minutes,
+        "idle_ceiling_pct": conf.monitoring.idle_ceiling_pct,
         "report": {
             "customer_name": conf.report.customer_name,
             "account_number": conf.report.account_number,

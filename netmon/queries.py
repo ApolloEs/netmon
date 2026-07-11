@@ -87,7 +87,8 @@ def get_speed_history(engine: Engine, days: int = 30) -> list[dict]:
                 SELECT
                     timestamp,
                     download_mbps, upload_mbps, ping_ms,
-                    pct_of_target, target_mbps
+                    pct_of_target, target_mbps,
+                    local_down_mbps, utilization_pct, load_tier
                 FROM speed_tests
                 WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
                 ORDER BY timestamp
@@ -586,6 +587,27 @@ def get_report_stats(engine: Engine, days: int = 30) -> dict:
             params,
         ).fetchall()
 
+        # Local host load context: how many sub-target (below contracted)
+        # measurements happened while the machine was near-idle — the sentence
+        # that makes the evidence un-dismissable.
+        load = conn.execute(
+            text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE utilization_pct IS NOT NULL) AS measured,
+                    COUNT(*) FILTER (
+                        WHERE utilization_pct IS NOT NULL AND pct_of_target < 100
+                    ) AS sub_target,
+                    COUNT(*) FILTER (
+                        WHERE utilization_pct IS NOT NULL AND pct_of_target < 100
+                          AND load_tier = 'idle'
+                    ) AS sub_target_idle,
+                    AVG(utilization_pct) AS avg_util
+                FROM speed_tests
+                WHERE timestamp >= NOW() - (:days * INTERVAL '1 day')
+            """),
+            params,
+        ).one()
+
     def _f(v):
         return round(float(v), 1) if v is not None else None
 
@@ -647,6 +669,13 @@ def get_report_stats(engine: Engine, days: int = 30) -> dict:
                 (d["peak_loss_pct"] for d in deg if d["peak_loss_pct"] is not None),
                 default=None,
             ),
+        },
+        "load": {
+            "measured": load.measured,
+            "sub_target": load.sub_target,
+            "sub_target_idle": load.sub_target_idle,
+            "avg_util_pct": _f(load.avg_util),
+            "demonstrated_best": demonstrated_best_download(engine, 30),
         },
     }
 

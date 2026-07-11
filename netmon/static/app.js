@@ -342,6 +342,11 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
   const dlData = insertGapBreaks(rows.map(r => ({ x: r.timestamp, y: round1(r.download_mbps) })));
   const ulData = insertGapBreaks(rows.map(r => ({ x: r.timestamp, y: round1(r.upload_mbps) })));
   const medianData = insertGapBreaks(rollingMedian(rows));
+  // Local host usage at each test — mostly near zero (tests run when idle),
+  // which is exactly the point: low speeds don't line up with local load.
+  const localData = insertGapBreaks(rows.map(r => ({
+    x: r.timestamp, y: r.local_down_mbps != null ? round1(r.local_down_mbps) : null,
+  })));
 
   // Annotation scatter datasets (postponed / skipped / error / forced)
   const STATUS_COLORS = {
@@ -430,6 +435,19 @@ function buildSpeedChart(rows, eventRows, targetMbps) {
           pointRadius: 0,
           tension: 0.2,
         },
+        {
+          label: 'Local usage',
+          data: localData,
+          borderColor: '#a371f7',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          borderDash: [2, 3],
+          pointRadius: () => speedChartHovered ? 2 : 0,
+          pointHoverRadius: 4,
+          pointHitRadius: 8,
+          tension: 0.3,
+          spanGaps: false,
+        },
         ...annotationDatasets,
       ],
     },
@@ -482,6 +500,10 @@ function appendSpeedPoint(data) {
   speedChart.data.datasets[1].data.push({ x: ts, y: round1(data.upload_mbps) });
   // Extend target line
   speedChart.data.datasets[2].data[1] = { x: ts, y: TARGET_MBPS };
+  // Local usage trace (datasets[4]; annotations follow it)
+  speedChart.data.datasets[4].data.push({
+    x: ts, y: data.local_down_mbps != null ? round1(data.local_down_mbps) : null,
+  });
   speedChart.update('active');
 }
 
