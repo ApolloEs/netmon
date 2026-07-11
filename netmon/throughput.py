@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 from collections import deque
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import psutil
 from sqlalchemy import insert
@@ -206,6 +206,30 @@ class ThroughputSampler:
         if down is None or contracted_down_mbps <= 0:
             return None
         return down / contracted_down_mbps * 100.0
+
+
+class LoadContext(NamedTuple):
+    """Local host load at a moment; all None when load wasn't measured."""
+    down_mbps: Optional[float]
+    up_mbps: Optional[float]
+    utilization_pct: Optional[float]
+    tier: Optional[str]
+
+
+def capture_load(
+    sampler: "Optional[ThroughputSampler]",
+    contracted_down_mbps: float,
+    idle_ceiling_pct: float,
+    light_ceiling_pct: float,
+) -> LoadContext:
+    """Snapshot the sampler's latest reading as a LoadContext (all None if disabled)."""
+    if sampler is None:
+        return LoadContext(None, None, None, None)
+    down = sampler.latest_down_mbps()
+    up = sampler.latest_up_mbps()
+    util = sampler.recent_utilization(contracted_down_mbps)
+    tier = load_tier(util, idle_ceiling_pct, light_ceiling_pct)
+    return LoadContext(down, up, util, tier)
 
 
 def load_tier(util_pct: Optional[float], idle_ceiling_pct: float, light_ceiling_pct: float) -> Optional[str]:

@@ -64,7 +64,7 @@ def cycle(monkeypatch):
         speed_test, "_write_event",
         lambda engine, status, **kw: events.append((status, kw)),
     )
-    monkeypatch.setattr(speed_test, "_write_result", lambda engine, data, target: 42)
+    monkeypatch.setattr(speed_test, "_write_result", lambda engine, data, target, load: 42)
     monkeypatch.setattr(speed_test, "_run_speedtest_with_retry", lambda cli: OOKLA_JSON)
 
     def run(dl_now, force=False, retry_count=0, conf_over=None, cli_raises=False):
@@ -73,7 +73,10 @@ def cycle(monkeypatch):
             def boom(cli):
                 raise RuntimeError("CLI exploded")
             monkeypatch.setattr(speed_test, "_run_speedtest_with_retry", boom)
-        conf = SimpleNamespace(target_mbps=100.0, speed_test=st_conf(**(conf_over or {})))
+        conf = SimpleNamespace(
+            target_mbps=100.0, speed_test=st_conf(**(conf_over or {})),
+            monitoring=SimpleNamespace(idle_ceiling_pct=5.0, light_ceiling_pct=25.0),
+        )
         return speed_test.run(engine=None, conf=conf, force=force, retry_count=retry_count)
 
     run.events = events

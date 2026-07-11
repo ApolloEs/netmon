@@ -11,7 +11,9 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from netmon import degraded, events, pinger, queries, speed_test, throughput
+from netmon import (
+    degraded, events, outage_detector, pinger, queries, speed_test, throughput,
+)
 from netmon.runtime import Runtime
 from netmon.utils import now
 
@@ -41,6 +43,16 @@ def degraded_job(rt: Runtime) -> None:
             log.warning("Failed to publish degraded event: %s", exc)
 
 
+def reconcile_job(rt: Runtime) -> None:
+    outage_detector.reconcile(rt.engine, rt.conf)
+    # Back-fill local-load context onto intervals that closed since the last
+    # tick (host_throughput data is still within its 7-day retention).
+    try:
+        queries.annotate_interval_loads(rt.engine, rt.conf)
+    except Exception as exc:
+        log.warning("Failed to annotate interval loads: %s", exc)
+
+
 def throughput_job(rt: Runtime) -> None:
     """Sample the internet-facing NIC and persist the interval rate."""
     sampler = rt.throughput_sampler
@@ -63,7 +75,8 @@ def throughput_job(rt: Runtime) -> None:
 
 def speed_test_job(rt: Runtime, force: bool = False, retry_count: int = 0) -> None:
     status, test_id = speed_test.run(
-        rt.engine, rt.conf, scheduled_for=now(), force=force, retry_count=retry_count
+        rt.engine, rt.conf, scheduled_for=now(), force=force,
+        retry_count=retry_count, sampler=rt.throughput_sampler,
     )
 
     # Postponement is handled here, not by sleeping inside run(): schedule a

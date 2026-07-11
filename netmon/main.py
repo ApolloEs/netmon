@@ -200,7 +200,7 @@ def main() -> None:
     )
 
     scheduler.add_job(
-        lambda: outage_detector.reconcile(rt.engine, rt.conf),
+        lambda: jobs.reconcile_job(rt),
         trigger="interval",
         minutes=10,
         id="reconciler",

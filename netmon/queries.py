@@ -120,6 +120,53 @@ def demonstrated_best_download(engine: Engine, days: int = 30) -> float | None:
     return round(best, 1) if best is not None else None
 
 
+def annotate_interval_loads(engine: Engine, conf) -> None:
+    """
+    Back-fill local host load context (mean over the interval) onto closed
+    outages and degraded periods that don't have it yet, from host_throughput.
+    Idempotent: only touches recently-closed, still-unannotated rows; those
+    with no samples in their window stay NULL (= not measured, never idle).
+    """
+    from netmon.throughput import load_tier
+
+    cap = conf.target_mbps
+    idle = conf.monitoring.idle_ceiling_pct
+    light = conf.monitoring.light_ceiling_pct
+
+    with engine.begin() as conn:
+        for tbl in ("outages", "degraded_periods"):
+            candidates = conn.execute(
+                text(f"""
+                    SELECT id, started_at, ended_at FROM {tbl}
+                    WHERE ended_at IS NOT NULL
+                      AND utilization_pct IS NULL
+                      AND ended_at >= NOW() - INTERVAL '7 days'
+                """)
+            ).fetchall()
+            for row in candidates:
+                agg = conn.execute(
+                    text("""
+                        SELECT AVG(down_mbps) AS d, AVG(up_mbps) AS u
+                        FROM host_throughput
+                        WHERE timestamp >= :s AND timestamp <= :e
+                    """),
+                    {"s": row.started_at, "e": row.ended_at},
+                ).one()
+                if agg.d is None:
+                    continue  # no samples in the interval — leave NULL
+                util = agg.d / cap * 100 if cap > 0 else None
+                conn.execute(
+                    text(f"""
+                        UPDATE {tbl} SET
+                            local_down_mbps = :d, local_up_mbps = :u,
+                            utilization_pct = :util, load_tier = :tier
+                        WHERE id = :id
+                    """),
+                    {"d": agg.d, "u": agg.u, "util": util,
+                     "tier": load_tier(util, idle, light), "id": row.id},
+                )
+
+
 def get_test_events(engine: Engine, days: int = 30) -> list[dict]:
     """Test lifecycle events for speed chart annotations (postponed/skipped/forced)."""
     with engine.connect() as conn:

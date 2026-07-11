@@ -24,6 +24,7 @@ from sqlalchemy.engine import Engine
 from netmon import config as cfg
 from netmon.bandwidth import sample as sample_bandwidth
 from netmon.db import speed_tests, test_events
+from netmon.throughput import LoadContext, capture_load
 from netmon.utils import now
 
 log = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ def _write_event(
         )
 
 
-def _write_result(engine: Engine, data: dict, target_mbps: float) -> int:
+def _write_result(engine: Engine, data: dict, target_mbps: float, load: LoadContext) -> int:
     """Insert a speed_tests row and return its id."""
     try:
         dl = data["download"]["bandwidth"] * 8 / 1_000_000
@@ -87,6 +88,10 @@ def _write_result(engine: Engine, data: dict, target_mbps: float) -> int:
                 server_name=server.get("name", ""),
                 download_bytes=data["download"].get("bytes"),
                 upload_bytes=data["upload"].get("bytes"),
+                local_down_mbps=load.down_mbps,
+                local_up_mbps=load.up_mbps,
+                utilization_pct=load.utilization_pct,
+                load_tier=load.tier,
             )
             .returning(speed_tests.c.id)
         )
@@ -175,6 +180,7 @@ def run(
     scheduled_for=None,
     force: bool = False,
     retry_count: int = 0,
+    sampler=None,
 ) -> tuple[str, Optional[int]]:
     """
     One speed-test decision cycle. Does NOT sleep on postponement — the
@@ -193,15 +199,22 @@ def run(
         log.warning("Speed test already in progress — skipping this run.")
         return ("busy", None)
     try:
-        return _run_cycle(engine, conf, scheduled_for, force, retry_count)
+        return _run_cycle(engine, conf, scheduled_for, force, retry_count, sampler)
     finally:
         _run_lock.release()
 
 
 def _run_cycle(
-    engine: Engine, conf: cfg.Config, scheduled_for, force: bool, retry_count: int
+    engine: Engine, conf: cfg.Config, scheduled_for, force: bool, retry_count: int, sampler=None
 ) -> tuple[str, Optional[int]]:
     st_conf = conf.speed_test
+
+    # Local host load just before the test (background usage), for annotating
+    # the result row — captured before the Ookla run saturates the line.
+    load = capture_load(
+        sampler, conf.target_mbps,
+        conf.monitoring.idle_ceiling_pct, conf.monitoring.light_ceiling_pct,
+    )
 
     log.info("Sampling bandwidth before speed test...")
     dl_now, _ = sample_bandwidth(interval_seconds=5)
@@ -261,7 +274,7 @@ def _run_cycle(
         )
         return ("error", None)
 
-    test_id = _write_result(engine, data, conf.target_mbps)
+    test_id = _write_result(engine, data, conf.target_mbps, load)
     dl_result = data["download"]["bandwidth"] * 8 / 1_000_000
     log.info(
         "Speed test complete — %.1f Mbps down (%.0f%% of target). DB id: %d",

@@ -46,6 +46,13 @@ speed_tests = Table(
     # rows recorded before these columns existed have no byte data.
     Column("download_bytes", BigInteger),
     Column("upload_bytes", BigInteger),
+    # Local host load context at measurement time (NULL when host-throughput
+    # monitoring was disabled or the interface wasn't detected — never assume
+    # idle from absence). See netmon/throughput.py.
+    Column("local_down_mbps", Float),
+    Column("local_up_mbps", Float),
+    Column("utilization_pct", Float),
+    Column("load_tier", Text),
 )
 
 test_events = Table(
@@ -61,6 +68,11 @@ test_events = Table(
     Column("speed_test_id", Integer, ForeignKey("speed_tests.id")),
 )
 
+# The two interval tables below also carry local host load context (mean
+# over the interval): local_down_mbps, local_up_mbps, utilization_pct,
+# load_tier — populated by queries.annotate_interval_loads(); NULL until
+# then and for intervals with no throughput samples.
+
 outages = Table(
     "outages",
     metadata,
@@ -69,6 +81,10 @@ outages = Table(
     Column("ended_at", TZ),
     Column("duration_seconds", Integer),
     Column("trigger", Text),
+    Column("local_down_mbps", Float),
+    Column("local_up_mbps", Float),
+    Column("utilization_pct", Float),
+    Column("load_tier", Text),
 )
 
 degraded_periods = Table(
@@ -81,6 +97,10 @@ degraded_periods = Table(
     Column("avg_loss_pct", Float),     # running average across windows
     Column("peak_loss_pct", Float),    # worst single window
     Column("windows_count", Integer),  # number of contributing windows
+    Column("local_down_mbps", Float),
+    Column("local_up_mbps", Float),
+    Column("utilization_pct", Float),
+    Column("load_tier", Text),
 )
 
 connectivity_pings = Table(
@@ -142,6 +162,17 @@ MIGRATIONS = [
     # Composite index for the dashboard status query (DISTINCT ON target).
     "CREATE INDEX IF NOT EXISTS idx_pings_target_time "
     "ON connectivity_pings (target, timestamp DESC)",
+    # Local host load context (Phase 4) — additive, existing rows stay NULL.
+    *[
+        f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {typ}"
+        for tbl in ("speed_tests", "outages", "degraded_periods")
+        for col, typ in (
+            ("local_down_mbps", "DOUBLE PRECISION"),
+            ("local_up_mbps", "DOUBLE PRECISION"),
+            ("utilization_pct", "DOUBLE PRECISION"),
+            ("load_tier", "TEXT"),
+        )
+    ],
 ]
 
 # Arbitrary but fixed app-wide key for the schema advisory lock ("NETM").
