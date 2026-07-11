@@ -21,14 +21,25 @@
   --banner-bg:   #380f1c;
   --banner-text: #ff8fa3;
   --tile-label:  rgba(236, 232, 250, 0.68);
-  --card-shadow: inset 0 1px 0 rgba(236, 232, 250, 0.05);
+  --card-shadow: inset 0 1px 0 rgba(236, 232, 250, 0.08);
+  /* Brushed metal: hairline diagonal graining + a light catch at the
+     top-left falling to shade, layered over the flat card color. */
+  --card-sheen:  repeating-linear-gradient(105deg, rgba(236, 232, 250, 0.020) 0 2px, rgba(0, 0, 0, 0.045) 2px 4px),
+                 linear-gradient(165deg, rgba(236, 232, 250, 0.07) 0%, rgba(236, 232, 250, 0) 38%, rgba(0, 0, 0, 0.20) 100%);
+  /* Pearlescent page: faint cyan/violet/fuchsia glows drifting over the
+     base — mother-of-pearl on near-black. */
+  --page-bg:     radial-gradient(1100px 700px at 12% -5%, rgba(18, 160, 201, 0.10), transparent 60%),
+                 radial-gradient(900px 650px at 88% 12%, rgba(136, 120, 232, 0.11), transparent 55%),
+                 radial-gradient(1000px 800px at 55% 108%, rgba(209, 88, 201, 0.09), transparent 60%),
+                 var(--bg);
+  --strip-fog:   color-mix(in srgb, var(--card) 60%, transparent);
   --hero-glow:   0 0 26px rgba(18, 160, 201, 0.55);
   --strip-line:  linear-gradient(90deg, #12a0c9, #8c7ee8, #d158c9);
   --btn-glow:    0 0 14px rgba(18, 160, 201, 0.35);
 }
 
 :root[data-theme="light"] {
-  --bg:        #f4f2fc;
+  --bg:        #dcd8ec;
   --card:      #ffffff;
   --border:    #e3ddf5;
   --text:      #201a35;
@@ -45,7 +56,14 @@
   --banner-bg:   #fdecf3;
   --banner-text: #ab2456;
   --tile-label:  rgba(255, 255, 255, 0.92);
-  --card-shadow: 0 1px 3px rgba(32, 26, 53, 0.07);
+  --card-shadow: 0 2px 8px rgba(32, 26, 53, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --card-sheen:  repeating-linear-gradient(105deg, rgba(255, 255, 255, 0.20) 0 2px, rgba(46, 36, 82, 0.028) 2px 4px),
+                 linear-gradient(165deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0) 40%, rgba(46, 36, 82, 0.06) 100%);
+  --page-bg:     radial-gradient(1100px 700px at 12% -5%, rgba(255, 210, 233, 0.55), transparent 60%),
+                 radial-gradient(900px 650px at 88% 12%, rgba(182, 224, 240, 0.55), transparent 55%),
+                 radial-gradient(1000px 800px at 55% 108%, rgba(196, 184, 244, 0.50), transparent 60%),
+                 var(--bg);
+  --strip-fog:   color-mix(in srgb, var(--card) 55%, transparent);
   --hero-glow:   none;
   --strip-line:  none;
   --btn-glow:    none;
@@ -54,6 +72,14 @@
 html, body {
   background: var(--bg);
   color: var(--text);
+}
+
+body {
+  background: var(--page-bg);
+  background-attachment: fixed;
+}
+
+html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -66,7 +92,10 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
-  background: var(--card);
+  /* Foggy glass: content scrolls blurred underneath the sticky strip. */
+  background: var(--strip-fog);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -147,9 +176,9 @@ main {
 
 /* ── Card ───────────────────────────────────────────────────────── */
 .card {
-  background: var(--card);
+  background: var(--card-sheen), var(--card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 22px;
   padding: 20px;
   box-shadow: var(--card-shadow);
 }
@@ -438,9 +467,9 @@ main {
   overflow-y: auto;
 }
 .modal {
-  background: var(--card);
+  background: var(--card-sheen), var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 18px;
   width: 100%;
   max-width: 560px;
   padding: 20px;
@@ -566,9 +595,9 @@ main {
   padding: 20px;
 }
 .login-card {
-  background: var(--card);
+  background: var(--card-sheen), var(--card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 22px;
   padding: 28px;
   width: 100%;
   max-width: 340px;
