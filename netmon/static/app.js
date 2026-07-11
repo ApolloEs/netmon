@@ -17,7 +17,7 @@ const THEMES = {
     cal: ['#1f7a4c', '#5d7d2e', '#8a6d1f', '#96521f', '#9d2f31'], calEmpty: '#1a1430',
   },
   light: {
-    chartText: '#655e82', grid: '#efeaf9', gridMajor: '#d8cff0',
+    chartText: '#5a5375', grid: '#efeaf9', gridMajor: '#d8cff0',
     dl: '#0f93b3', dlFill: 'rgba(15,147,179,0.08)', ul: '#7048e8', median: '#b87f00',
     p95Fill: 'rgba(184,127,0,0.15)',
     outageBand: 'rgba(208,59,59,0.10)', degradedBand: 'rgba(160,110,0,0.12)',
@@ -55,6 +55,9 @@ function applyChartDefaults() {
   leg.boxWidth = 9;
   leg.boxHeight = 9;
   leg.padding = 14;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    Chart.defaults.animation = false;
+  }
 }
 applyChartDefaults();
 
@@ -838,6 +841,16 @@ function dismissTooltips(e) {
 }
 document.addEventListener('pointerdown', dismissTooltips, { passive: true });
 window.addEventListener('scroll', () => dismissTooltips(), { passive: true });
+
+// Escape closes whichever modal is open — same semantics as clicking
+// the backdrop (both just hide; nothing is saved either way).
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  for (const id of ['settings-overlay', 'enroll-overlay']) {
+    const el = document.getElementById(id);
+    if (el && !el.classList.contains('hidden')) el.classList.add('hidden');
+  }
+});
 
 
 // ── Daily quality calendar ────────────────────────────────────────────

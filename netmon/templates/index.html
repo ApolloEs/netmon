@@ -13,7 +13,7 @@
   <!-- ── Status Strip ─────────────────────────────────────────────── -->
   <header class="status-strip">
     <div class="status-left">
-      <span id="status-dot" class="dot dot--unknown"></span>
+      <span id="status-dot" class="dot dot--unknown" aria-hidden="true"></span>
       <span id="status-label">connecting…</span>
     </div>
     <div class="status-center">
@@ -36,18 +36,18 @@
     </div>
     <div class="status-right">
       <span id="last-updated" class="dim">—</span>
-      <button id="theme-toggle" class="btn btn-icon" title="Toggle light/dark theme">☀</button>
+      <button id="theme-toggle" class="btn btn-icon" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">☀</button>
       <a class="btn" href="/report" target="_blank" title="Generate the ISP evidence report">Report</a>
       {% if can_enroll %}
       <button id="enroll-open" class="btn" title="Link a phone or tablet to this dashboard">Link device</button>
       {% endif %}
       <button id="run-test" class="btn{% if not can_edit %} hidden{% endif %}" title="Run a speed test now (bypasses postpone logic)">▶ Run test</button>
-      <button id="settings-open" class="btn btn-icon{% if not can_edit %} hidden{% endif %}" title="Settings">⚙</button>
+      <button id="settings-open" class="btn btn-icon{% if not can_edit %} hidden{% endif %}" title="Settings" aria-label="Settings">⚙</button>
     </div>
   </header>
 
   <!-- ── Open Outage Banner ─────────────────────────────────────── -->
-  <div id="outage-banner" class="outage-banner hidden">
+  <div id="outage-banner" class="outage-banner hidden" role="status" aria-live="polite">
     ⚠ Outage in progress — trigger: <span id="outage-trigger">—</span>,
     started <span id="outage-since">—</span>
   </div>
@@ -58,7 +58,7 @@
     <section class="card">
       <h2>Speed over Time <span class="dim">(last 30 days)</span></h2>
       <div class="chart-wrap">
-        <canvas id="speedChart"></canvas>
+        <canvas id="speedChart" role="img" aria-label="Download and upload speed over time"></canvas>
       </div>
       <div class="chart-ranges">
         <button class="btn range-btn" data-range="day">Day</button>
@@ -72,7 +72,7 @@
     <section class="card">
       <h2>Latency <span class="dim">(internet targets, last 7 days, 5-min buckets)</span></h2>
       <div class="chart-wrap chart-wrap--short">
-        <canvas id="latencyChart"></canvas>
+        <canvas id="latencyChart" role="img" aria-label="Ping latency over time"></canvas>
         <div id="latency-empty" class="chart-empty hidden">No ping data yet.</div>
       </div>
     </section>
@@ -131,7 +131,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Settings</h2>
-        <button id="settings-close" class="btn btn-icon" title="Close">✕</button>
+        <button id="settings-close" class="btn btn-icon" title="Close" aria-label="Close settings">✕</button>
       </div>
 
       <div id="settings-error" class="settings-error hidden"></div>
@@ -227,7 +227,7 @@
     <div class="modal modal--narrow">
       <div class="modal-header">
         <h2>View on your phone</h2>
-        <button id="enroll-close" class="btn btn-icon" title="Close">✕</button>
+        <button id="enroll-close" class="btn btn-icon" title="Close" aria-label="Close device linking">✕</button>
       </div>
       <p class="dim small">
         Scan with your phone on the same Wi-Fi. Opening the link enrolls
