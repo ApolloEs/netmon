@@ -25,4 +25,5 @@ class Runtime:
         self.targets: List[str] = []
         self.scheduler = None  # set by main.py; None in dashboard-only mode
         self.pinger_state = PingerState()  # replaced via restore_state() at startup/restart
+        self.throughput_sampler = None  # ThroughputSampler when enabled, else None
         self.lock = threading.Lock()

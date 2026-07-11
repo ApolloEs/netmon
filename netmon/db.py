@@ -93,8 +93,20 @@ connectivity_pings = Table(
     Column("latency_ms", Float),
 )
 
+host_throughput = Table(
+    "host_throughput",
+    metadata,
+    Column("id", BigInteger, primary_key=True),
+    Column("timestamp", TZ, nullable=False),
+    Column("interface", Text, nullable=False),
+    Column("down_mbps", Float),
+    Column("up_mbps", Float),
+)
+
 # Index defined separately so it mirrors the raw SQL schema exactly.
 Index("idx_pings_timestamp", connectivity_pings.c.timestamp)
+# Serves retention pruning and interval-mean lookups over host_throughput.
+Index("idx_throughput_timestamp", host_throughput.c.timestamp)
 # Serves the status query's DISTINCT ON (target) ... ORDER BY target,
 # timestamp DESC without a full sort (runs every ping cycle).
 Index(

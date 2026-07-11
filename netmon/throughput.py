@@ -24,13 +24,23 @@ import ipaddress
 import logging
 import subprocess
 import sys
+import time
+from collections import deque
 from typing import Optional
 
 import psutil
+from sqlalchemy import insert
+from sqlalchemy.engine import Engine
 
 from netmon import pinger
+from netmon.db import host_throughput
+from netmon.utils import now
 
 log = logging.getLogger(__name__)
+
+# Keep ~5 minutes of samples so any event can ask "what was local usage
+# around this time" without a DB round-trip.
+_WINDOW_SECONDS = 300
 
 
 def _interface_names() -> set[str]:
@@ -129,3 +139,76 @@ def resolve_interface(configured: str) -> Optional[str]:
             iface,
         )
     return None
+
+
+def _bytes_to_mbps(byte_count: int, seconds: float) -> float:
+    return (byte_count * 8) / (seconds * 1_000_000)
+
+
+class ThroughputSampler:
+    """
+    Turns cumulative NIC byte counters into per-interval Mbps and keeps a
+    short rolling window. Pure bookkeeping: `poll` takes the current
+    counters and clock so it can be unit-tested without psutil or sleeping.
+
+    The 5-second scheduler cadence IS the sampling interval — the sampler
+    never sleeps (that would park an executor worker). Each poll diffs
+    against the previous snapshot and divides by the MEASURED elapsed time.
+    """
+
+    def __init__(self, interface: str):
+        self.interface = interface
+        self._prev: Optional[tuple[float, int, int]] = None  # (ts, recv, sent)
+        # (ts, down_mbps, up_mbps), newest last
+        self.window: deque[tuple[float, float, float]] = deque()
+
+    def poll(self, ts: float, recv_bytes: int, sent_bytes: int) -> Optional[tuple[float, float]]:
+        """
+        Record a counter reading. Returns (down_mbps, up_mbps) for the
+        interval since the previous reading, or None when no rate can be
+        computed yet (first reading, zero elapsed, or a counter reset).
+        """
+        prev = self._prev
+        self._prev = (ts, recv_bytes, sent_bytes)
+        if prev is None:
+            return None
+        elapsed = ts - prev[0]
+        if elapsed <= 0:
+            return None
+        down_delta = recv_bytes - prev[1]
+        up_delta = sent_bytes - prev[2]
+        if down_delta < 0 or up_delta < 0:
+            # Counter reset (interface restart, sleep/resume) — an impossible
+            # negative rate. Skip this sample; the next one measures cleanly.
+            log.debug("Counter reset on %s; skipping sample.", self.interface)
+            return None
+        down = _bytes_to_mbps(down_delta, elapsed)
+        up = _bytes_to_mbps(up_delta, elapsed)
+        self.window.append((ts, down, up))
+        self._trim(ts)
+        return down, up
+
+    def _trim(self, now_ts: float) -> None:
+        cutoff = now_ts - _WINDOW_SECONDS
+        while self.window and self.window[0][0] < cutoff:
+            self.window.popleft()
+
+
+def read_counters(interface: str) -> Optional[tuple[float, int, int]]:
+    """Current (wall_ts, bytes_recv, bytes_sent) for the interface, or None."""
+    counters = psutil.net_io_counters(pernic=True).get(interface)
+    if counters is None:
+        return None
+    return time.time(), counters.bytes_recv, counters.bytes_sent
+
+
+def record_sample(engine: Engine, interface: str, down_mbps: float, up_mbps: float) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            insert(host_throughput).values(
+                timestamp=now(),
+                interface=interface,
+                down_mbps=down_mbps,
+                up_mbps=up_mbps,
+            )
+        )

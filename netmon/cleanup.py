@@ -8,19 +8,21 @@ from datetime import timedelta
 from sqlalchemy import delete
 from sqlalchemy.engine import Engine
 
-from netmon.db import connectivity_pings
+from netmon.db import connectivity_pings, host_throughput
 from netmon.utils import now
 
 log = logging.getLogger(__name__)
 
 
-def prune_pings(engine: Engine, retention_days: int = 7) -> None:
-    """Delete connectivity_pings rows older than retention_days."""
+def _prune_table(engine: Engine, table, label: str, retention_days: int) -> None:
     cutoff = now() - timedelta(days=retention_days)
     with engine.begin() as conn:
-        result = conn.execute(
-            delete(connectivity_pings).where(connectivity_pings.c.timestamp < cutoff)
-        )
-    deleted = result.rowcount
-    if deleted:
-        log.info("Pruned %d ping rows older than %d days.", deleted, retention_days)
+        result = conn.execute(delete(table).where(table.c.timestamp < cutoff))
+    if result.rowcount:
+        log.info("Pruned %d %s rows older than %d days.", result.rowcount, label, retention_days)
+
+
+def prune_pings(engine: Engine, retention_days: int = 7) -> None:
+    """Delete raw high-volume rows (pings, throughput samples) past retention."""
+    _prune_table(engine, connectivity_pings, "ping", retention_days)
+    _prune_table(engine, host_throughput, "throughput", retention_days)

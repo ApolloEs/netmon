@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from netmon import degraded, events, pinger, queries, speed_test
+from netmon import degraded, events, pinger, queries, speed_test, throughput
 from netmon.runtime import Runtime
 from netmon.utils import now
 
@@ -39,6 +39,26 @@ def degraded_job(rt: Runtime) -> None:
             events.publish("degraded_update", {})
         except Exception as exc:
             log.warning("Failed to publish degraded event: %s", exc)
+
+
+def throughput_job(rt: Runtime) -> None:
+    """Sample the internet-facing NIC and persist the interval rate."""
+    sampler = rt.throughput_sampler
+    if sampler is None:
+        return
+    reading = throughput.read_counters(sampler.interface)
+    if reading is None:
+        log.debug("Interface '%s' has no counters this cycle.", sampler.interface)
+        return
+    ts, recv, sent = reading
+    result = sampler.poll(ts, recv, sent)
+    if result is None:
+        return
+    down, up = result
+    try:
+        throughput.record_sample(rt.engine, sampler.interface, down, up)
+    except Exception as exc:
+        log.warning("Failed to record throughput sample: %s", exc)
 
 
 def speed_test_job(rt: Runtime, force: bool = False, retry_count: int = 0) -> None:

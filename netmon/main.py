@@ -149,6 +149,7 @@ def main() -> None:
     if iface:
         source = "from config" if conf.monitoring.interface.lower() != "auto" else "auto-detected"
         log.info("Monitoring host throughput on interface: %s (%s)", iface, source)
+        rt.throughput_sampler = throughput.ThroughputSampler(iface)
     else:
         log.warning(
             "Host-throughput disabled: could not determine the internet-facing "
@@ -227,13 +228,24 @@ def main() -> None:
         next_run_time=now() + timedelta(minutes=5),
     )
 
+    if rt.throughput_sampler is not None:
+        scheduler.add_job(
+            lambda: jobs.throughput_job(rt),
+            trigger="interval",
+            seconds=5,
+            id="throughput",
+            name="Host Throughput Sampler",
+            next_run_time=now(),
+        )
+
     rt.scheduler = scheduler
 
     log.info(
         "Scheduler started — pinger every %ds, speed test every %.1fh, "
-        "reconciler every 10min, cleanup daily.",
+        "reconciler every 10min, cleanup daily%s.",
         conf.connectivity.ping_interval_seconds,
         conf.speed_test.interval_hours,
+        ", throughput every 5s" if rt.throughput_sampler is not None else "",
     )
 
     scheduler.start()
